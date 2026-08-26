@@ -49,6 +49,17 @@ There are several ways to change configuration parameters:
 
 3. Use the [Control API](21-control-api.md).
 
+## Validate the configuration
+
+You can validate a configuration file without starting the server:
+
+```sh
+./mediamtx --verify-conf
+./mediamtx --verify-conf /path/to/mediamtx.yml
+```
+
+When no path is provided, the command searches the same default configuration locations used during startup. If no default configuration file exists, the command fails. Environment variables are still applied during validation.
+
 ## Encrypt the configuration
 
 The configuration file can be entirely encrypted for security purposes by using the `crypto_secretbox` function of the NaCL library. An online tool for performing this operation is [available here](https://play.golang.org/p/rX29jwObNe4).

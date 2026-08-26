@@ -13,14 +13,15 @@ import (
 	"github.com/bluenviron/mediamtx/internal/test"
 )
 
-func newInstance(t *testing.T, conf string) (*Core, bool) {
+func newInstance(t *testing.T, conf string, args ...string) (*Core, bool) {
 	if conf == "" {
-		return New([]string{})
+		return New(args)
 	}
 
 	tmpf := test.CreateTempFile(t, []byte(conf))
+	args = append(append([]string{}, args...), tmpf)
 
-	return New([]string{tmpf})
+	return New(args)
 }
 
 func TestCoreErrors(t *testing.T) {
@@ -146,4 +147,68 @@ func TestCoreHotReloadingAndLoggerError(t *testing.T) {
 	require.NoError(t, err)
 
 	p.Wait()
+}
+
+func TestNewRejectsConflictingOneShotFlags(t *testing.T) {
+	_, ok := newInstance(t, "", "--version", "--verify-conf")
+	require.Equal(t, false, ok)
+}
+
+func TestVerifyConf(t *testing.T) {
+	savedDefaultConfPaths := defaultConfPaths
+	savedDefaultConfPathsNotWin := defaultConfPathsNotWin
+	t.Cleanup(func() {
+		defaultConfPaths = savedDefaultConfPaths
+		defaultConfPathsNotWin = savedDefaultConfPathsNotWin
+	})
+
+	writeTempConf := func(t *testing.T, content string) string {
+		t.Helper()
+
+		pa := filepath.Join(t.TempDir(), "mediamtx.yml")
+		err := os.WriteFile(pa, []byte(content), 0o644)
+		require.NoError(t, err)
+		return pa
+	}
+
+	t.Run("explicit valid path", func(t *testing.T) {
+		defaultConfPaths = nil
+		defaultConfPathsNotWin = nil
+
+		err := verifyConf(writeTempConf(t, "paths:\n  all_others:\n"))
+		require.NoError(t, err)
+	})
+
+	t.Run("explicit invalid path", func(t *testing.T) {
+		defaultConfPaths = nil
+		defaultConfPathsNotWin = nil
+
+		err := verifyConf(writeTempConf(t, "writeQueueSize: 3\n"))
+		require.EqualError(t, err, "'writeQueueSize' must be a power of two")
+	})
+
+	t.Run("no path and no default file", func(t *testing.T) {
+		defaultConfPaths = []string{filepath.Join(t.TempDir(), "missing.yml")}
+		defaultConfPathsNotWin = nil
+
+		err := verifyConf("")
+		require.ErrorContains(t, err, "configuration file not found")
+	})
+
+	t.Run("no path and default file exists", func(t *testing.T) {
+		defaultConfPaths = []string{writeTempConf(t, "paths:\n  all_others:\n")}
+		defaultConfPathsNotWin = nil
+
+		err := verifyConf("")
+		require.NoError(t, err)
+	})
+
+	t.Run("environment variables are applied", func(t *testing.T) {
+		defaultConfPaths = nil
+		defaultConfPathsNotWin = nil
+		t.Setenv("MTX_WRITEQUEUESIZE", "3")
+
+		err := verifyConf(writeTempConf(t, "paths:\n  all_others:\n"))
+		require.EqualError(t, err, "'writeQueueSize' must be a power of two")
+	})
 }

@@ -59,6 +59,64 @@ var defaultConfPathsNotWin = []string{
 	"/etc/mediamtx/mediamtx.yml",
 }
 
+func currentDefaultConfPaths() []string {
+	paths := append([]string(nil), defaultConfPaths...)
+	if runtime.GOOS != "windows" {
+		paths = append(paths, defaultConfPathsNotWin...)
+	}
+	return paths
+}
+
+func firstExistingPath(paths []string) string {
+	for _, pa := range paths {
+		_, err := os.Stat(pa)
+		if err == nil {
+			return pa
+		}
+	}
+	return ""
+}
+
+func formatConfPaths(paths []string) []string {
+	list := make([]string, len(paths))
+	for i, pa := range paths {
+		a, _ := filepath.Abs(pa)
+		list[i] = a
+	}
+	return list
+}
+
+func newTempLogger() (*logger.Logger, error) {
+	l := &logger.Logger{
+		Level:        logger.Warn,
+		Destinations: []logger.Destination{logger.DestinationStdout},
+		Structured:   false,
+		File:         "",
+		SysLogPrefix: "",
+	}
+	return l, l.Initialize()
+}
+
+func verifyConf(confPath string) error {
+	confPaths := currentDefaultConfPaths()
+
+	if confPath == "" {
+		confPath = firstExistingPath(confPaths)
+		if confPath == "" {
+			return fmt.Errorf("configuration file not found (looked in %s)", strings.Join(formatConfPaths(confPaths), ", "))
+		}
+	}
+
+	tempLogger, err := newTempLogger()
+	if err != nil {
+		return err
+	}
+	defer tempLogger.Close()
+
+	_, _, err = conf.Load(confPath, confPaths, tempLogger)
+	return err
+}
+
 func goArm() string {
 	bi, _ := debug.ReadBuildInfo()
 	for _, bs := range bi.Settings {
@@ -115,6 +173,7 @@ var cli struct {
 	Version      bool   `help:"print version"`
 	CheckVersion bool   `help:"check whether a new version is available"`
 	Upgrade      bool   `help:"upgrade executable to the latest version"`
+	VerifyConf   bool   `help:"check whether a configuration file is valid"`
 }
 
 type configGlobalPatchReq struct {
@@ -209,6 +268,24 @@ func New(args []string) (*Core, bool) {
 	_, err = parser.Parse(args)
 	parser.FatalIfErrorf(err)
 
+	oneShotCount := 0
+	if cli.Version {
+		oneShotCount++
+	}
+	if cli.CheckVersion {
+		oneShotCount++
+	}
+	if cli.Upgrade {
+		oneShotCount++
+	}
+	if cli.VerifyConf {
+		oneShotCount++
+	}
+	if oneShotCount > 1 {
+		fmt.Printf("ERR: %v\n", "only one of --version, --check-version, --upgrade and --verify-conf can be used at a time")
+		return nil, false
+	}
+
 	if cli.Version {
 		fmt.Println(string(version))
 		os.Exit(0)
@@ -236,6 +313,16 @@ func New(args []string) (*Core, bool) {
 		os.Exit(0)
 	}
 
+	if cli.VerifyConf {
+		err = verifyConf(cli.Confpath)
+		if err != nil {
+			fmt.Printf("ERR: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("configuration file is valid")
+		os.Exit(0)
+	}
+
 	ctx, ctxCancel := context.WithCancel(context.Background())
 
 	p := &Core{
@@ -250,19 +337,14 @@ func New(args []string) (*Core, bool) {
 		done:                         make(chan struct{}),
 	}
 
-	tempLogger := &logger.Logger{
-		Level:        logger.Warn,
-		Destinations: []logger.Destination{logger.DestinationStdout},
-		Structured:   false,
-		File:         "",
-		SysLogPrefix: "",
+	tempLogger, err := newTempLogger()
+	if err != nil {
+		fmt.Printf("ERR: %v\n", err)
+		return nil, false
 	}
-	tempLogger.Initialize() //nolint:errcheck
+	defer tempLogger.Close()
 
-	confPaths := append([]string(nil), defaultConfPaths...)
-	if runtime.GOOS != "windows" {
-		confPaths = append(confPaths, defaultConfPathsNotWin...)
-	}
+	confPaths := currentDefaultConfPaths()
 
 	loadedConf, confPath, err := conf.Load(cli.Confpath, confPaths, tempLogger)
 	if err != nil {
@@ -451,15 +533,9 @@ func (p *Core) createResources(initial bool) error {
 			a, _ := filepath.Abs(p.confPath)
 			p.Log(logger.Info, "configuration loaded from %s", a)
 		} else {
-			list := make([]string, len(defaultConfPaths))
-			for i, pa := range defaultConfPaths {
-				a, _ := filepath.Abs(pa)
-				list[i] = a
-			}
-
 			p.Log(logger.Warn,
 				"configuration file not found (looked in %s), using an empty configuration",
-				strings.Join(list, ", "))
+				strings.Join(formatConfPaths(currentDefaultConfPaths()), ", "))
 		}
 
 		// on Linux, try to raise the number of file descriptors that can be opened
