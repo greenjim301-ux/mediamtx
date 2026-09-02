@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bluenviron/mediamtx/internal/conf"
+	"github.com/bluenviron/mediamtx/internal/defs"
 	"github.com/bluenviron/mediamtx/internal/forward/rtsp"
 	"github.com/bluenviron/mediamtx/internal/stream"
 	"github.com/bluenviron/mediamtx/internal/test"
@@ -135,6 +136,11 @@ func TestDest(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		return dest.OutboundBytes() > 0
+	}, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		typeSpecific, ok := dest.TypeSpecific().(*defs.APIForwardDestTypeSpecificRTSP)
+		return ok && typeSpecific.RemoteAddr == ln.Addr().String() && typeSpecific.Transport != "" &&
+			typeSpecific.OutboundBytes == dest.OutboundBytes() && typeSpecific.OutboundRTPPackets > 0
 	}, 5*time.Second, 10*time.Millisecond)
 
 	cancel()

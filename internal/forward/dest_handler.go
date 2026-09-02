@@ -168,6 +168,13 @@ func (h *DestHandler) outboundBytesLocked() uint64 {
 	return outboundBytes
 }
 
+func (h *DestHandler) typeSpecificLocked() defs.APIForwardDestTypeSpecific {
+	if h.activeDest == nil {
+		return nil
+	}
+	return h.activeDest.TypeSpecific()
+}
+
 func (h *DestHandler) run(strm *stream.Stream) {
 	defer close(h.done)
 
@@ -300,6 +307,7 @@ func (h *DestHandler) APIItem() defs.APIForwardDest {
 	defer h.mutex.RUnlock()
 
 	outboundBytes := h.outboundBytesLocked()
+	typeSpecific := h.typeSpecificLocked()
 
 	return defs.APIForwardDest{
 		ID:            h.uuid,
@@ -310,6 +318,7 @@ func (h *DestHandler) APIItem() defs.APIForwardDest {
 		State:         h.state,
 		LastError:     h.lastError,
 		OutboundBytes: outboundBytes,
+		TypeSpecific:  typeSpecific,
 		Protocol:      h.protocol,
 	}
 }

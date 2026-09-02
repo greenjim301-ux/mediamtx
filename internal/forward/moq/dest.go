@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/bluenviron/mediamtx/internal/conf"
+	"github.com/bluenviron/mediamtx/internal/defs"
 	"github.com/bluenviron/mediamtx/internal/logger"
 	protomoq "github.com/bluenviron/mediamtx/internal/protocols/moq"
 	"github.com/bluenviron/mediamtx/internal/protocols/moq/property"
@@ -26,8 +27,9 @@ type Dest struct {
 	Transport       conf.MoQTransport
 	Parent          logger.Writer
 
-	mutex         sync.RWMutex
-	outboundBytes uint64
+	mutex            sync.RWMutex
+	typeSpecificFunc func() *defs.APIForwardDestTypeSpecificMoQ
+	outboundBytes    uint64
 }
 
 // Log implements logger.Writer.
@@ -50,11 +52,27 @@ func (d *Dest) OutboundBytes() uint64 {
 	return d.outboundBytes
 }
 
+// TypeSpecific returns type-specific state.
+func (d *Dest) TypeSpecific() defs.APIForwardDestTypeSpecific {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
+	if d.typeSpecificFunc == nil {
+		return nil
+	}
+	return d.typeSpecificFunc()
+}
+
 // Run runs the destination.
 func (d *Dest) Run(ctx context.Context) error {
 	u, err := url.Parse(d.Dest)
 	if err != nil {
 		return err
+	}
+
+	transport := d.Transport
+	if transport == "" {
+		transport = conf.MoQTransportQUIC
 	}
 
 	client := &protomoq.Client{
@@ -68,6 +86,20 @@ func (d *Dest) Run(ctx context.Context) error {
 		return err
 	}
 	defer client.Close() //nolint:errcheck
+
+	d.mutex.Lock()
+	d.typeSpecificFunc = func() *defs.APIForwardDestTypeSpecificMoQ {
+		return &defs.APIForwardDestTypeSpecificMoQ{
+			Transport:     string(transport),
+			OutboundBytes: d.outboundBytes,
+		}
+	}
+	d.mutex.Unlock()
+	defer func() {
+		d.mutex.Lock()
+		d.typeSpecificFunc = nil
+		d.mutex.Unlock()
+	}()
 
 	r := &stream.Reader{Parent: d}
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bluenviron/mediamtx/internal/conf"
+	"github.com/bluenviron/mediamtx/internal/defs"
 	"github.com/bluenviron/mediamtx/internal/logger"
 	ptls "github.com/bluenviron/mediamtx/internal/protocols/tls"
 	pwebrtc "github.com/bluenviron/mediamtx/internal/protocols/webrtc"
@@ -29,6 +30,7 @@ type Dest struct {
 
 	mutex  sync.RWMutex
 	client *whip.Client
+	reader *stream.Reader
 }
 
 // Log implements logger.Writer.
@@ -47,6 +49,41 @@ func (d *Dest) OutboundBytes() uint64 {
 	}
 
 	return client.PeerConnection().Stats().BytesSent
+}
+
+// TypeSpecific returns type-specific state.
+func (d *Dest) TypeSpecific() defs.APIForwardDestTypeSpecific {
+	d.mutex.RLock()
+	client := d.client
+	reader := d.reader
+	d.mutex.RUnlock()
+
+	if client == nil || client.PeerConnection() == nil {
+		return nil
+	}
+
+	pc := client.PeerConnection()
+	stats := pc.Stats()
+	outboundFramesDiscarded := uint64(0)
+	if reader != nil {
+		outboundFramesDiscarded = reader.OutboundFramesDiscarded()
+	}
+
+	return &defs.APIForwardDestTypeSpecificWebRTC{
+		RemoteAddr:                client.URL.Host,
+		PeerConnectionEstablished: true,
+		LocalCandidate:            pc.LocalCandidate(),
+		RemoteCandidate:           pc.RemoteCandidate(),
+		InboundBytes:              stats.BytesReceived,
+		InboundRTPPackets:         stats.RTPPacketsReceived,
+		InboundRTPPacketsLost:     stats.RTPPacketsLost,
+		InboundRTPPacketsJitter:   stats.RTPPacketsJitter,
+		InboundRTCPPackets:        stats.RTCPPacketsReceived,
+		OutboundBytes:             stats.BytesSent,
+		OutboundRTPPackets:        stats.RTPPacketsSent,
+		OutboundRTCPPackets:       stats.RTCPPacketsSent,
+		OutboundFramesDiscarded:   outboundFramesDiscarded,
+	}
 }
 
 // Run runs the destination.
@@ -90,10 +127,12 @@ func (d *Dest) Run(ctx context.Context) error {
 
 	d.mutex.Lock()
 	d.client = client
+	d.reader = r
 	d.mutex.Unlock()
 	defer func() {
 		d.mutex.Lock()
 		d.client = nil
+		d.reader = nil
 		d.mutex.Unlock()
 	}()
 

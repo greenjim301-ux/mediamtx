@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bluenviron/mediamtx/internal/conf"
+	"github.com/bluenviron/mediamtx/internal/defs"
 	"github.com/bluenviron/mediamtx/internal/forward/rtmp"
 	"github.com/bluenviron/mediamtx/internal/stream"
 	"github.com/bluenviron/mediamtx/internal/test"
@@ -145,6 +146,12 @@ frameLoop:
 
 	require.Eventually(t, func() bool {
 		return dest.OutboundBytes() > 0
+	}, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		typeSpecific, ok := dest.TypeSpecific().(*defs.APIForwardDestTypeSpecificRTMP)
+		return ok && typeSpecific.RemoteAddr == ln.Addr().String() &&
+			typeSpecific.OutboundBytes == dest.OutboundBytes() &&
+			typeSpecific.InboundBytes > 0
 	}, 5*time.Second, 10*time.Millisecond)
 
 	cancel()

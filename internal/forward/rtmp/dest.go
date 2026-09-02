@@ -15,6 +15,7 @@ import (
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
 
 	"github.com/bluenviron/mediamtx/internal/conf"
+	"github.com/bluenviron/mediamtx/internal/defs"
 	"github.com/bluenviron/mediamtx/internal/logger"
 	rtmpprotocol "github.com/bluenviron/mediamtx/internal/protocols/rtmp"
 	ptls "github.com/bluenviron/mediamtx/internal/protocols/tls"
@@ -72,8 +73,8 @@ type Dest struct {
 	WriteTimeout    conf.Duration
 	Parent          logger.Writer
 
-	mutex             sync.RWMutex
-	outboundBytesFunc func() uint64
+	mutex            sync.RWMutex
+	typeSpecificFunc func() *defs.APIForwardDestTypeSpecificRTMP
 }
 
 // Log implements logger.Writer.
@@ -86,10 +87,21 @@ func (d *Dest) OutboundBytes() uint64 {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
-	if d.outboundBytesFunc == nil {
+	if d.typeSpecificFunc == nil {
 		return 0
 	}
-	return d.outboundBytesFunc()
+	return d.typeSpecificFunc().OutboundBytes
+}
+
+// TypeSpecific returns type-specific state.
+func (d *Dest) TypeSpecific() defs.APIForwardDestTypeSpecific {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
+	if d.typeSpecificFunc == nil {
+		return nil
+	}
+	return d.typeSpecificFunc()
 }
 
 // Run runs the destination.
@@ -132,7 +144,13 @@ func (d *Dest) Run(ctx context.Context) error {
 
 func (d *Dest) runInner(conn *gortmplib.Client, terminate <-chan struct{}) error {
 	d.mutex.Lock()
-	d.outboundBytesFunc = conn.BytesSent
+	d.typeSpecificFunc = func() *defs.APIForwardDestTypeSpecificRTMP {
+		return &defs.APIForwardDestTypeSpecificRTMP{
+			RemoteAddr:    conn.URL.Host,
+			InboundBytes:  conn.BytesReceived(),
+			OutboundBytes: conn.BytesSent(),
+		}
+	}
 	d.mutex.Unlock()
 
 	r := &stream.Reader{Parent: d}
