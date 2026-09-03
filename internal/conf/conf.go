@@ -371,6 +371,15 @@ type Conf struct {
 	HLSMuxerCloseAfter Duration   `json:"hlsMuxerCloseAfter"`
 	HLSCDNSecret       string     `json:"hlsCDNSecret"`
 
+	// HTTP-FLV server
+	HTTPFLV               bool       `json:"httpflv"`
+	HTTPFLVAddress        string     `json:"httpflvAddress"`
+	HTTPFLVEncryption     bool       `json:"httpflvEncryption"`
+	HTTPFLVServerKey      string     `json:"httpflvServerKey"`
+	HTTPFLVServerCert     string     `json:"httpflvServerCert"`
+	HTTPFLVAllowOrigins   []string   `json:"httpflvAllowOrigins"`
+	HTTPFLVTrustedProxies IPNetworks `json:"httpflvTrustedProxies"`
+
 	// WebRTC server
 	WebRTC                             bool              `json:"webrtc"`
 	WebRTCDisable                      *bool             `json:"webrtcDisable,omitempty" deprecated:"true"`
@@ -512,6 +521,13 @@ func (conf *Conf) setDefaults() {
 	conf.HLSPartDuration = 200 * Duration(time.Millisecond)
 	conf.HLSSegmentMaxSize = 50 * 1024 * 1024
 	conf.HLSMuxerCloseAfter = 60 * Duration(time.Second)
+
+	// HTTP-FLV server
+	conf.HTTPFLV = false
+	conf.HTTPFLVAddress = ":8891"
+	conf.HTTPFLVServerKey = "server.key"
+	conf.HTTPFLVServerCert = "server.crt"
+	conf.HTTPFLVAllowOrigins = []string{"*"}
 
 	// WebRTC server
 	conf.WebRTC = true
@@ -972,6 +988,12 @@ func (conf *Conf) Validate(l logger.Writer) error {
 		if !rePlainCredential.MatchString(conf.HLSCDNSecret) {
 			return fmt.Errorf("'hlsCDNSecret' contains unsupported characters. Supported are: %s", plainCredentialSupportedChars)
 		}
+	}
+
+	// HTTP-FLV
+
+	if conf.HTTPFLV && conf.HTTPFLVAddress == "" {
+		return fmt.Errorf("'httpflvAddress' must be set when HTTP-FLV is enabled")
 	}
 
 	// WebRTC (deprecated params)

@@ -50,17 +50,18 @@ type APIPathReaderType string
 
 // reader types.
 const (
-	APIPathReaderTypeHLSSession    APIPathReaderType = "hlsSession"
-	APIPathReaderTypeRTMPConn      APIPathReaderType = "rtmpConn"
-	APIPathReaderTypeRTMPSConn     APIPathReaderType = "rtmpsConn"
-	APIPathReaderTypeRTSPConn      APIPathReaderType = "rtspConn"
-	APIPathReaderTypeRTSPSession   APIPathReaderType = "rtspSession"
-	APIPathReaderTypeRTSPSConn     APIPathReaderType = "rtspsConn"
-	APIPathReaderTypeRTSPSSession  APIPathReaderType = "rtspsSession"
-	APIPathReaderTypeSRTConn       APIPathReaderType = "srtConn"
-	APIPathReaderTypeWebRTCSession APIPathReaderType = "webRTCSession"
-	APIPathReaderTypeMoQSession    APIPathReaderType = "moqSession"
-	APIPathReaderTypeHidden        APIPathReaderType = "hidden"
+	APIPathReaderTypeHLSSession     APIPathReaderType = "hlsSession"
+	APIPathReaderTypeRTMPConn       APIPathReaderType = "rtmpConn"
+	APIPathReaderTypeRTMPSConn      APIPathReaderType = "rtmpsConn"
+	APIPathReaderTypeRTSPConn       APIPathReaderType = "rtspConn"
+	APIPathReaderTypeRTSPSession    APIPathReaderType = "rtspSession"
+	APIPathReaderTypeRTSPSConn      APIPathReaderType = "rtspsConn"
+	APIPathReaderTypeRTSPSSession   APIPathReaderType = "rtspsSession"
+	APIPathReaderTypeSRTConn        APIPathReaderType = "srtConn"
+	APIPathReaderTypeWebRTCSession  APIPathReaderType = "webRTCSession"
+	APIPathReaderTypeMoQSession     APIPathReaderType = "moqSession"
+	APIPathReaderTypeHTTPFLVSession APIPathReaderType = "httpFlvSession"
+	APIPathReaderTypeHidden         APIPathReaderType = "hidden"
 )
 
 // APIPathReader is a reader.

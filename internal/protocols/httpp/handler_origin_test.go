@@ -38,6 +38,17 @@ func TestHandlerOriginAddAllowOriginHeader(t *testing.T) {
 			expected:       "https://example.com",
 		},
 		{
+			name:           "everything allowed, null origin (file://, sandboxed iframe)",
+			origin:         "null",
+			allowedOrigins: []string{"*"},
+			expected:       "null",
+		},
+		{
+			name:           "specific origin only, null origin",
+			origin:         "null",
+			allowedOrigins: []string{"https://example.com"},
+		},
+		{
 			name:           "allowed",
 			origin:         "https://example.org",
 			allowedOrigins: []string{"http://example.com", "https://example.org"},

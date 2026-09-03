@@ -33,6 +33,7 @@ import (
 	"github.com/bluenviron/mediamtx/internal/recordcleaner"
 	"github.com/bluenviron/mediamtx/internal/rlimit"
 	"github.com/bluenviron/mediamtx/internal/servers/hls"
+	"github.com/bluenviron/mediamtx/internal/servers/httpflv"
 	"github.com/bluenviron/mediamtx/internal/servers/moq"
 	"github.com/bluenviron/mediamtx/internal/servers/rtmp"
 	"github.com/bluenviron/mediamtx/internal/servers/rtsp"
@@ -220,6 +221,7 @@ type Core struct {
 	rtmpServer      *rtmp.Server
 	rtmpsServer     *rtmp.Server
 	hlsServer       *hls.Server
+	httpFLVServer   *httpflv.Server
 	webRTCServer    *webrtc.Server
 	srtServer       *srt.Server
 	moqServer       *moq.Server
@@ -835,6 +837,29 @@ func (p *Core) createResources(initial bool) error {
 		p.hlsServer = i
 	}
 
+	if currentConf.HTTPFLV &&
+		p.httpFLVServer == nil {
+		i := &httpflv.Server{
+			Address:         currentConf.HTTPFLVAddress,
+			DumpPackets:     currentConf.DumpPackets,
+			Encryption:      currentConf.HTTPFLVEncryption,
+			ServerKey:       currentConf.HTTPFLVServerKey,
+			ServerCert:      currentConf.HTTPFLVServerCert,
+			AllowOrigins:    currentConf.HTTPFLVAllowOrigins,
+			TrustedProxies:  currentConf.HTTPFLVTrustedProxies,
+			ReadTimeout:     currentConf.ReadTimeout,
+			WriteTimeout:    currentConf.WriteTimeout,
+			ExternalCmdPool: p.externalCmdPool,
+			PathManager:     p.pathManager,
+			Parent:          p,
+		}
+		err = i.Initialize()
+		if err != nil {
+			return err
+		}
+		p.httpFLVServer = i
+	}
+
 	if currentConf.WebRTC &&
 		p.webRTCServer == nil {
 		i := &webrtc.Server{
@@ -1166,6 +1191,20 @@ func (p *Core) closeResources(newConf *conf.Conf) {
 		closeMetrics ||
 		closeLogger
 
+	closeHTTPFLVServer := newConf == nil ||
+		newConf.HTTPFLV != currentConf.HTTPFLV ||
+		newConf.HTTPFLVAddress != currentConf.HTTPFLVAddress ||
+		newConf.HTTPFLVEncryption != currentConf.HTTPFLVEncryption ||
+		newConf.HTTPFLVServerKey != currentConf.HTTPFLVServerKey ||
+		newConf.HTTPFLVServerCert != currentConf.HTTPFLVServerCert ||
+		!slices.Equal(newConf.HTTPFLVAllowOrigins, currentConf.HTTPFLVAllowOrigins) ||
+		!reflect.DeepEqual(newConf.HTTPFLVTrustedProxies, currentConf.HTTPFLVTrustedProxies) ||
+		newConf.ReadTimeout != currentConf.ReadTimeout ||
+		newConf.WriteTimeout != currentConf.WriteTimeout ||
+		newConf.DumpPackets != currentConf.DumpPackets ||
+		closePathManager ||
+		closeLogger
+
 	closeWebRTCServer := newConf == nil ||
 		newConf.WebRTC != currentConf.WebRTC ||
 		newConf.WebRTCAddress != currentConf.WebRTCAddress ||
@@ -1275,6 +1314,11 @@ func (p *Core) closeResources(newConf *conf.Conf) {
 	if closeHLSServer && p.hlsServer != nil {
 		p.hlsServer.Close()
 		p.hlsServer = nil
+	}
+
+	if closeHTTPFLVServer && p.httpFLVServer != nil {
+		p.httpFLVServer.Close()
+		p.httpFLVServer = nil
 	}
 
 	if closeRTMPSServer && p.rtmpsServer != nil {

@@ -5,12 +5,21 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
 func isOriginAllowed(origin string, allowOrigins []string) bool {
 	if len(allowOrigins) == 0 {
 		return false
+	}
+
+	// "null" is sent by browsers for file://, sandboxed iframes and similar
+	// origins that cannot be expressed as a scheme/host/port triple.
+	// It can't be compared with the entries of the list,
+	// therefore it is allowed by the wildcard only.
+	if origin == "null" {
+		return slices.Contains(allowOrigins, "*")
 	}
 
 	originURL, err := url.Parse(origin)

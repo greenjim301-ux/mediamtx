@@ -371,6 +371,34 @@ hlsMuxerCloseAfter: 60s
 hlsCDNSecret: ""
 
 ###############################################
+# Global settings -> HTTP-FLV server
+
+# Enable the HTTP-FLV server, which allows to read streams with HTTP-FLV,
+# a format compatible with players such as flv.js and mpegts.js.
+# Only H264 and H265 video tracks are supported; audio tracks are ignored.
+# Since there's no GOP cache, a reader that connects mid-stream waits
+# for the next key frame before receiving any data.
+httpflv: true
+# Address of the TCP/HTTP listener.
+httpflvAddress: :8891
+# Enable HTTPS.
+httpflvEncryption: false
+# Path to the server key. This is needed only when encryption is yes.
+# This can be generated with:
+# openssl genrsa -out server.key 2048
+# openssl req -new -x509 -sha256 -key server.key -out server.crt -days 3650
+httpflvServerKey: server.key
+# Path to the server certificate.
+httpflvServerCert: server.crt
+# Allowed CORS origins.
+# Supports wildcards: ['http://*.example.com']
+httpflvAllowOrigins: ["*"]
+# IPs or CIDRs of proxies placed before the HTTP-FLV server.
+# If the server receives a request from one of these entries, IP in logs
+# will be taken from the X-Forwarded-For header.
+httpflvTrustedProxies: []
+
+###############################################
 # Global settings -> WebRTC server
 
 # Enable the WebRTC server, which allows to publish and read streams with the WebRTC protocol.
@@ -434,7 +462,7 @@ webrtcTrackGatherTimeout: 2s
 # Global settings -> SRT server
 
 # Enable the SRT server, which allows to publish and read streams with the SRT protocol.
-srt: true
+srt: false
 # Address of the UDP/SRT listener.
 srtAddress: :8890
 
@@ -442,7 +470,7 @@ srtAddress: :8890
 # MoQ server
 
 # Enable the MoQ (Media over QUIC) server, which allows to publish and read streams with the MoQ protocol.
-moq: true
+moq: false
 # Address of the TCP/HTTP2 listener.
 # This hosts the web client.
 moqHTTP2Address: :8892
