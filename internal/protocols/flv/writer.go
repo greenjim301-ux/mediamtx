@@ -8,35 +8,55 @@ import (
 )
 
 const (
+	tagTypeAudio = 8
 	tagTypeVideo = 9
 )
 
-// Writer writes a video-only FLV stream to W.
+// Writer writes a FLV stream to W.
 type Writer struct {
 	W io.Writer
+
+	// filled by FromStream(), that must be called before WriteHeader().
+	hasVideo bool
+	hasAudio bool
 }
 
 // WriteHeader writes the FLV file header.
-// The stream is always declared as video-only, since audio is not supported.
 func (w *Writer) WriteHeader() error {
+	var flags byte
+	if w.hasVideo {
+		flags |= 0x01
+	}
+	if w.hasAudio {
+		flags |= 0x04
+	}
+
 	_, err := w.W.Write([]byte{
 		'F', 'L', 'V',
 		1,          // version
-		0x01,       // flags: video present, audio absent
+		flags,      // presence of audio and video
 		0, 0, 0, 9, // header size
 		0, 0, 0, 0, // PreviousTagSize0
 	})
 	return err
 }
 
-// writeTag writes a video tag (header, data and PreviousTagSize) to W.
-func (w *Writer) writeTag(dts time.Duration, data []byte) error {
+func (w *Writer) writeVideoTag(dts time.Duration, data []byte) error {
+	return w.writeTag(tagTypeVideo, dts, data)
+}
+
+func (w *Writer) writeAudioTag(dts time.Duration, data []byte) error {
+	return w.writeTag(tagTypeAudio, dts, data)
+}
+
+// writeTag writes a tag (header, data and PreviousTagSize) to W.
+func (w *Writer) writeTag(tagType byte, dts time.Duration, data []byte) error {
 	ms := uint32(dts.Milliseconds())
 	size := uint32(len(data))
 
 	buf := make([]byte, 11+len(data)+4)
 
-	buf[0] = tagTypeVideo
+	buf[0] = tagType
 	buf[1] = byte(size >> 16)
 	buf[2] = byte(size >> 8)
 	buf[3] = byte(size)

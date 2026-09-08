@@ -375,10 +375,13 @@ hlsCDNSecret: ""
 
 # Enable the HTTP-FLV server, which allows to read streams with HTTP-FLV,
 # a format compatible with players such as flv.js and mpegts.js.
-# Only H264 and H265 video tracks are supported; audio tracks are ignored.
+# Supported codecs are H264 and H265 for video, MPEG-4 Audio (AAC) and
+# G711 (PCMA, PCMU, 8000 Hz only) for audio. At most one video track and
+# one audio track are sent, since FLV doesn't support more than that.
+# Note that browser players usually support AAC only, and not G711.
 # Since there's no GOP cache, a reader that connects mid-stream waits
 # for the next key frame before receiving any data.
-httpflv: true
+httpflv: false
 # Address of the TCP/HTTP listener.
 httpflvAddress: :8891
 # Enable HTTPS.
@@ -462,7 +465,7 @@ webrtcTrackGatherTimeout: 2s
 # Global settings -> SRT server
 
 # Enable the SRT server, which allows to publish and read streams with the SRT protocol.
-srt: false
+srt: true
 # Address of the UDP/SRT listener.
 srtAddress: :8890
 
@@ -470,7 +473,7 @@ srtAddress: :8890
 # MoQ server
 
 # Enable the MoQ (Media over QUIC) server, which allows to publish and read streams with the MoQ protocol.
-moq: false
+moq: true
 # Address of the TCP/HTTP2 listener.
 # This hosts the web client.
 moqHTTP2Address: :8892

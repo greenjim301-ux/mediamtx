@@ -8,6 +8,7 @@ import (
 	"github.com/abema/go-mp4"
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/h264"
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/h265"
+	"github.com/bluenviron/mediacommon/v2/pkg/codecs/mpeg4audio"
 )
 
 const (
@@ -24,6 +25,18 @@ const (
 	videoExIsExHeader              = 0x80
 	videoExPacketTypeSequenceStart = 0x00
 	videoExPacketTypeCodedFrames   = 0x01
+
+	audioCodecPCMA       = 7
+	audioCodecPCMU       = 8
+	audioCodecMPEG4Audio = 10
+
+	audioRate5512  = 0
+	audioRate44100 = 3
+
+	audioDepth16 = 1
+
+	aacPacketTypeSequenceHeader = 0
+	aacPacketTypeAU             = 1
 )
 
 var videoFourCCHEVC = [4]byte{'h', 'v', 'c', '1'}
@@ -169,6 +182,56 @@ func h265DecoderConfig(vps, sps, pps []byte) ([]byte, error) {
 	copy(body[5:], record)
 
 	return body, nil
+}
+
+// as per specification, rate, depth and channel count of AAC tags are fixed:
+// real values are stored inside the AudioSpecificConfig.
+const aacTagHeader = byte((audioCodecMPEG4Audio << 4) | (audioRate44100 << 2) | (audioDepth16 << 1) | 1)
+
+// aacSequenceHeader builds an AAC sequence header tag payload.
+func aacSequenceHeader(config *mpeg4audio.AudioSpecificConfig) ([]byte, error) {
+	enc, err := config.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	body := make([]byte, 2+len(enc))
+	body[0] = aacTagHeader
+	body[1] = aacPacketTypeSequenceHeader
+	copy(body[2:], enc)
+
+	return body, nil
+}
+
+// aacAU builds an AAC access unit tag payload.
+func aacAU(au []byte) []byte {
+	body := make([]byte, 2+len(au))
+	body[0] = aacTagHeader
+	body[1] = aacPacketTypeAU
+	copy(body[2:], au)
+
+	return body
+}
+
+// g711Samples builds a G711 (A-law or mu-law) tag payload.
+func g711Samples(samples []byte, muLaw bool, channelCount int) []byte {
+	codec := byte(audioCodecPCMA)
+	if muLaw {
+		codec = audioCodecPCMU
+	}
+
+	// FLV is not able to represent the 8000 Hz rate of G711;
+	// the lowest available value is used, like other implementations do.
+	header := (codec << 4) | (audioRate5512 << 2) | (audioDepth16 << 1)
+	if channelCount == 2 {
+		header |= 1
+	}
+
+	body := make([]byte, 1+len(samples))
+	body[0] = header
+	copy(body[1:], samples)
+
+	return body
 }
 
 // h265AU builds an Enhanced FLV (fourCC "hvc1") coded-frames tag payload.
