@@ -597,6 +597,17 @@ func (pconf *Path) validate(
 			return err
 		}
 
+	case strings.HasPrefix(pconf.Source, "gb28181://"):
+		id := strings.TrimPrefix(pconf.Source, "gb28181://")
+		if i := strings.LastIndex(id, "/"); i >= 0 {
+			id = id[i+1:]
+		}
+
+		// the ID can be a regular expression group, that is resolved at runtime.
+		if id == "" {
+			return fmt.Errorf("invalid 'source': the GB28181 channel ID is missing")
+		}
+
 	case pconf.Source == "redirect":
 		if pconf.SourceRedirect == "" {
 			return fmt.Errorf("source redirect must be filled")

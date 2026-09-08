@@ -32,6 +32,7 @@ import (
 	"github.com/bluenviron/mediamtx/internal/pprof"
 	"github.com/bluenviron/mediamtx/internal/recordcleaner"
 	"github.com/bluenviron/mediamtx/internal/rlimit"
+	"github.com/bluenviron/mediamtx/internal/servers/gb28181"
 	"github.com/bluenviron/mediamtx/internal/servers/hls"
 	"github.com/bluenviron/mediamtx/internal/servers/httpflv"
 	"github.com/bluenviron/mediamtx/internal/servers/moq"
@@ -222,6 +223,7 @@ type Core struct {
 	rtmpsServer     *rtmp.Server
 	hlsServer       *hls.Server
 	httpFLVServer   *httpflv.Server
+	gb28181Server   *gb28181.Server
 	webRTCServer    *webrtc.Server
 	srtServer       *srt.Server
 	moqServer       *moq.Server
@@ -635,6 +637,33 @@ func (p *Core) createResources(initial bool) error {
 		p.playbackServer = i
 	}
 
+	if currentConf.GB28181 &&
+		p.gb28181Server == nil {
+		i := &gb28181.Server{
+			Address:         currentConf.GB28181Address,
+			Transports:      currentConf.GB28181Transports,
+			Serial:          currentConf.GB28181Serial,
+			Realm:           currentConf.GB28181Realm,
+			Password:        currentConf.GB28181Password,
+			SIPIP:           currentConf.GB28181SIPIP,
+			MediaListenIP:   currentConf.GB28181MediaListenIP,
+			MediaIP:         currentConf.GB28181MediaIP,
+			MediaProtocol:   currentConf.GB28181MediaProtocol,
+			MediaPortMin:    int(currentConf.GB28181MediaPortRange[0]),
+			MediaPortMax:    int(currentConf.GB28181MediaPortRange[1]),
+			KeepalivePeriod: currentConf.GB28181KeepalivePeriod,
+			PathTemplate:    currentConf.GB28181PathTemplate,
+			ReadTimeout:     currentConf.ReadTimeout,
+			WriteTimeout:    currentConf.WriteTimeout,
+			Parent:          p,
+		}
+		err = i.Initialize()
+		if err != nil {
+			return err
+		}
+		p.gb28181Server = i
+	}
+
 	if p.pathManager == nil {
 		rtpMaxPayloadSize := getRTPMaxPayloadSize(currentConf.UDPMaxPayloadSize, currentConf.RTSPEncryption)
 
@@ -649,6 +678,7 @@ func (p *Core) createResources(initial bool) error {
 			udpMaxPayloadSize: currentConf.UDPMaxPayloadSize,
 			rtpMaxPayloadSize: rtpMaxPayloadSize,
 			supportsIPv6:      p.supportsIPv6,
+			gb28181Server:     p.gb28181StaticSourceServer(),
 			pathConfs:         currentConf.Paths,
 			authManager:       p.authManager,
 			externalCmdPool:   p.externalCmdPool,
@@ -965,6 +995,7 @@ func (p *Core) createResources(initial bool) error {
 			RTMPServer:     p.rtmpServer,
 			RTMPSServer:    p.rtmpsServer,
 			HLSServer:      p.hlsServer,
+			GB28181Server:  p.gb28181Server,
 			WebRTCServer:   p.webRTCServer,
 			SRTServer:      p.srtServer,
 			MoQServer:      p.moqServer,
@@ -1068,6 +1099,24 @@ func (p *Core) closeResources(newConf *conf.Conf) {
 		p.playbackServer.ReloadPathConfs(newConf.Paths)
 	}
 
+	closeGB28181Server := newConf == nil ||
+		newConf.GB28181 != currentConf.GB28181 ||
+		newConf.GB28181Address != currentConf.GB28181Address ||
+		!slices.Equal(newConf.GB28181Transports, currentConf.GB28181Transports) ||
+		newConf.GB28181Serial != currentConf.GB28181Serial ||
+		newConf.GB28181Realm != currentConf.GB28181Realm ||
+		newConf.GB28181Password != currentConf.GB28181Password ||
+		newConf.GB28181SIPIP != currentConf.GB28181SIPIP ||
+		newConf.GB28181MediaListenIP != currentConf.GB28181MediaListenIP ||
+		newConf.GB28181MediaIP != currentConf.GB28181MediaIP ||
+		newConf.GB28181MediaProtocol != currentConf.GB28181MediaProtocol ||
+		!slices.Equal(newConf.GB28181MediaPortRange, currentConf.GB28181MediaPortRange) ||
+		newConf.GB28181KeepalivePeriod != currentConf.GB28181KeepalivePeriod ||
+		newConf.GB28181PathTemplate != currentConf.GB28181PathTemplate ||
+		newConf.ReadTimeout != currentConf.ReadTimeout ||
+		newConf.WriteTimeout != currentConf.WriteTimeout ||
+		closeLogger
+
 	closePathManager := newConf == nil ||
 		newConf.LogLevel != currentConf.LogLevel ||
 		newConf.DumpPackets != currentConf.DumpPackets ||
@@ -1078,6 +1127,7 @@ func (p *Core) closeResources(newConf *conf.Conf) {
 		newConf.UDPReadBufferSize != currentConf.UDPReadBufferSize ||
 		newConf.UDPMaxPayloadSize != currentConf.UDPMaxPayloadSize ||
 		newConf.RTSPEncryption != currentConf.RTSPEncryption ||
+		closeGB28181Server ||
 		closeMetrics ||
 		closeAuthManager ||
 		closeLogger
@@ -1279,6 +1329,7 @@ func (p *Core) closeResources(newConf *conf.Conf) {
 		closeRTMPServer ||
 		closeRTMPSServer ||
 		closeHLSServer ||
+		closeGB28181Server ||
 		closeWebRTCServer ||
 		closeSRTServer ||
 		closeMoQServer ||
@@ -1344,6 +1395,12 @@ func (p *Core) closeResources(newConf *conf.Conf) {
 	if closePathManager && p.pathManager != nil {
 		p.pathManager.close()
 		p.pathManager = nil
+	}
+
+	// the GB28181 server is closed after paths, since they use it to pull streams.
+	if closeGB28181Server && p.gb28181Server != nil {
+		p.gb28181Server.Close()
+		p.gb28181Server = nil
 	}
 
 	if closePlaybackServer && p.playbackServer != nil {

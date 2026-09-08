@@ -86,6 +86,7 @@ type API struct {
 	WebRTCServer   defs.APIWebRTCServer
 	SRTServer      defs.APISRTServer
 	MoQServer      defs.APIMoQServer
+	GB28181Server  defs.APIGB28181Server
 	Parent         apiParent
 
 	httpServer *httpp.Server
@@ -229,6 +230,14 @@ func (a *API) Initialize() error {
 		group.GET("/moqsessions/list", a.onMoQSessionsList)
 		group.GET("/moqsessions/get/:id", a.onMoQSessionsGet)
 		group.POST("/moqsessions/kick/:id", a.onMoQSessionsKick)
+	}
+
+	if !interfaceIsEmpty(a.GB28181Server) {
+		group.GET("/gb28181/devices/list", a.onGB28181DevicesList)
+		group.GET("/gb28181/devices/get/:id", a.onGB28181DevicesGet)
+		group.POST("/gb28181/devices/refresh/:id", a.onGB28181DevicesRefresh)
+		group.GET("/gb28181/channels/list", a.onGB28181ChannelsList)
+		group.POST("/gb28181/channels/ptz/:id", a.onGB28181PTZ)
 	}
 
 	group.GET("/recordings/list", a.onRecordingsList)

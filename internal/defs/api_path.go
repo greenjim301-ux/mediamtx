@@ -37,6 +37,7 @@ const (
 	APIPathSourceTypeWebRTCSource    APIPathSourceType = "webRTCSource"
 	APIPathSourceTypeMoQSource       APIPathSourceType = "moqSource"
 	APIPathSourceTypeMoQSession      APIPathSourceType = "moqSession"
+	APIPathSourceTypeGB28181Source   APIPathSourceType = "gb28181Source"
 )
 
 // APIPathSource is a source.

@@ -14,6 +14,7 @@ import (
 	"github.com/goccy/go-yaml/ast"
 	"github.com/google/uuid"
 
+	"github.com/bluenviron/mediamtx/internal/api"
 	"github.com/bluenviron/mediamtx/internal/conf"
 	"github.com/bluenviron/mediamtx/internal/defs"
 )
@@ -37,6 +38,26 @@ var structs = []struct {
 	{
 		externalName: "Error",
 		typ:          reflect.TypeOf(defs.APIError{}),
+	},
+	{
+		externalName: "GB28181Channel",
+		typ:          reflect.TypeOf(defs.APIGB28181Channel{}),
+	},
+	{
+		externalName: "GB28181ChannelList",
+		typ:          reflect.TypeOf(defs.APIGB28181ChannelList{}),
+	},
+	{
+		externalName: "GB28181Device",
+		typ:          reflect.TypeOf(defs.APIGB28181Device{}),
+	},
+	{
+		externalName: "GB28181DeviceList",
+		typ:          reflect.TypeOf(defs.APIGB28181DeviceList{}),
+	},
+	{
+		externalName: "GB28181PTZRequest",
+		typ:          reflect.TypeOf(api.GB28181PTZRequest{}),
 	},
 	{
 		externalName: "GlobalConf",

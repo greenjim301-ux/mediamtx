@@ -137,6 +137,7 @@ components:
         - srtConn
         - webRTCSession
         - moqSession
+        - httpFlvSession
         - hidden
 
     PathSourceType:
@@ -159,6 +160,7 @@ components:
         - webRTCSource
         - moqSource
         - moqSession
+        - gb28181Source
 
     ForwardDestType:
       type: string
@@ -309,6 +311,117 @@ components:
         status:
           $ref: "#/components/schemas/ErrorStatus"
 
+    GB28181Channel:
+      type: object
+      properties:
+        address:
+          type: string
+        deviceId:
+          type: string
+        id:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        manufacturer:
+          type: string
+        model:
+          type: string
+        name:
+          type: string
+        online:
+          type: boolean
+        parentId:
+          type: string
+        path:
+          type: string
+        ptzType:
+          type: integer
+          format: int64
+
+    GB28181ChannelList:
+      type: object
+      properties:
+        itemCount:
+          type: integer
+          format: int64
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GB28181Channel"
+        pageCount:
+          type: integer
+          format: int64
+
+    GB28181Device:
+      type: object
+      properties:
+        address:
+          type: string
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/GB28181Channel"
+        deviceType:
+          type: string
+        firmware:
+          type: string
+        id:
+          type: string
+        lastKeepaliveTime:
+          type: string
+          nullable: true
+        manufacturer:
+          type: string
+        model:
+          type: string
+        name:
+          type: string
+        online:
+          type: boolean
+        registeredTime:
+          type: string
+          nullable: true
+        transport:
+          type: string
+
+    GB28181DeviceList:
+      type: object
+      properties:
+        itemCount:
+          type: integer
+          format: int64
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GB28181Device"
+        pageCount:
+          type: integer
+          format: int64
+
+    GB28181PTZRequest:
+      type: object
+      properties:
+        command:
+          type: string
+          description: Command is the name of the command (up, down, left, right, zoomin, ...).
+        preset:
+          type: integer
+          format: int64
+          description: Preset is the number of the preset (0-255), used by preset commands.
+          nullable: true
+        raw:
+          type: string
+          description: Raw allows to send a command word directly, in hexadecimal form.
+        speed:
+          type: integer
+          format: int64
+          description: Speed is the speed of the movement (0-255).
+          nullable: true
+
     GlobalConf:
       type: object
       properties:
@@ -386,6 +499,38 @@ components:
           type: string
           nullable: true
           deprecated: true
+        gb28181:
+          type: boolean
+          description: GB28181 server
+        gb28181Address:
+          type: string
+        gb28181KeepalivePeriod:
+          type: string
+        gb28181MediaIP:
+          type: string
+        gb28181MediaListenIP:
+          type: string
+        gb28181MediaPortRange:
+          type: array
+          items:
+            type: integer
+            format: uint64
+        gb28181MediaProtocol:
+          type: string
+        gb28181Password:
+          type: string
+        gb28181PathTemplate:
+          type: string
+        gb28181Realm:
+          type: string
+        gb28181SIPIP:
+          type: string
+        gb28181Serial:
+          type: string
+        gb28181Transports:
+          type: array
+          items:
+            type: string
         hls:
           type: boolean
           description: HLS server
@@ -432,6 +577,25 @@ components:
             type: string
         hlsVariant:
           $ref: "#/components/schemas/HLSVariant"
+        httpflv:
+          type: boolean
+          description: HTTP-FLV server
+        httpflvAddress:
+          type: string
+        httpflvAllowOrigins:
+          type: array
+          items:
+            type: string
+        httpflvEncryption:
+          type: boolean
+        httpflvServerCert:
+          type: string
+        httpflvServerKey:
+          type: string
+        httpflvTrustedProxies:
+          type: array
+          items:
+            type: string
         logDestinations:
           type: array
           items:
@@ -4700,6 +4864,217 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: connection not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v3/gb28181/devices/list:
+    get:
+      operationId: gb28181DevicesList
+      tags: [GB28181]
+      summary: returns all GB28181 devices.
+      description: ""
+      parameters:
+        - name: page
+          in: query
+          description: page number.
+          schema:
+            type: integer
+            default: 0
+        - name: itemsPerPage
+          in: query
+          description: items per page.
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: the request was successful.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GB28181DeviceList"
+        "400":
+          description: invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: authentication failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v3/gb28181/devices/get/{id}:
+    get:
+      operationId: gb28181DevicesGet
+      tags: [GB28181]
+      summary: returns a GB28181 device.
+      description: ""
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID of the device.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the request was successful.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GB28181Device"
+        "401":
+          description: authentication failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: device not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v3/gb28181/devices/refresh/{id}:
+    post:
+      operationId: gb28181DevicesRefresh
+      tags: [GB28181]
+      summary: asks a GB28181 device for its channel list.
+      description: ""
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID of the device.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the request was successful.
+        "401":
+          description: authentication failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: device not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v3/gb28181/channels/list:
+    get:
+      operationId: gb28181ChannelsList
+      tags: [GB28181]
+      summary: returns all channels of all GB28181 devices.
+      description: ""
+      parameters:
+        - name: page
+          in: query
+          description: page number.
+          schema:
+            type: integer
+            default: 0
+        - name: itemsPerPage
+          in: query
+          description: items per page.
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: the request was successful.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GB28181ChannelList"
+        "400":
+          description: invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: authentication failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v3/gb28181/channels/ptz/{id}:
+    post:
+      operationId: gb28181ChannelsPTZ
+      tags: [GB28181]
+      summary: sends a PTZ command to a GB28181 channel.
+      description: ""
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID of the channel.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GB28181PTZRequest"
+      responses:
+        "200":
+          description: the request was successful.
+        "400":
+          description: invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: authentication failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: channel not found.
           content:
             application/json:
               schema:

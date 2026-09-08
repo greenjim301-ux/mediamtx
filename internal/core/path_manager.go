@@ -17,6 +17,7 @@ import (
 	"github.com/bluenviron/mediamtx/internal/logger"
 	"github.com/bluenviron/mediamtx/internal/metrics"
 	"github.com/bluenviron/mediamtx/internal/servers/hls"
+	ssgb28181 "github.com/bluenviron/mediamtx/internal/staticsources/gb28181"
 )
 
 func pathConfCanBeUpdated(oldPathConf *conf.Path, newPathConf *conf.Path) bool {
@@ -84,6 +85,7 @@ type pathManager struct {
 	udpMaxPayloadSize int
 	rtpMaxPayloadSize int
 	supportsIPv6      bool
+	gb28181Server     ssgb28181.Server
 	pathConfs         map[string]*conf.Path
 	authManager       pathManagerAuthManager
 	externalCmdPool   *externalcmd.Pool
@@ -521,6 +523,7 @@ func (pm *pathManager) createPath(
 		udpMaxPayloadSize: pm.udpMaxPayloadSize,
 		rtpMaxPayloadSize: pm.rtpMaxPayloadSize,
 		supportsIPv6:      pm.supportsIPv6,
+		gb28181Server:     pm.gb28181Server,
 		conf:              pathConf,
 		name:              name,
 		matches:           matches,

@@ -22,6 +22,7 @@ import (
 	"github.com/bluenviron/mediamtx/internal/logger"
 	"github.com/bluenviron/mediamtx/internal/recorder"
 	"github.com/bluenviron/mediamtx/internal/staticsources"
+	ssgb28181 "github.com/bluenviron/mediamtx/internal/staticsources/gb28181"
 	"github.com/bluenviron/mediamtx/internal/stream"
 )
 
@@ -113,6 +114,7 @@ type path struct {
 	udpMaxPayloadSize int
 	rtpMaxPayloadSize int
 	supportsIPv6      bool
+	gb28181Server     ssgb28181.Server
 	conf              *conf.Path
 	name              string
 	matches           []string
@@ -253,6 +255,7 @@ func (pa *path) run() {
 			RTPMaxPayloadSize: pa.rtpMaxPayloadSize,
 			SupportsIPv6:      pa.supportsIPv6,
 			Matches:           pa.matches,
+			GB28181Server:     pa.gb28181Server,
 			PathManager:       pa.parent,
 			Parent:            pa,
 		}

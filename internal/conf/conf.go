@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -405,6 +406,21 @@ type Conf struct {
 	WebRTCICEHostNAT1To1IPs            *[]string         `json:"webrtcICEHostNAT1To1IPs,omitempty" deprecated:"true"`
 	WebRTCICEServers                   *[]string         `json:"webrtcICEServers,omitempty" deprecated:"true"`
 
+	// GB28181 server
+	GB28181                bool     `json:"gb28181"`
+	GB28181Address         string   `json:"gb28181Address"`
+	GB28181Transports      []string `json:"gb28181Transports"`
+	GB28181Serial          string   `json:"gb28181Serial"`
+	GB28181Realm           string   `json:"gb28181Realm"`
+	GB28181Password        string   `json:"gb28181Password"`
+	GB28181SIPIP           string   `json:"gb28181SIPIP"`
+	GB28181MediaListenIP   string   `json:"gb28181MediaListenIP"`
+	GB28181MediaIP         string   `json:"gb28181MediaIP"`
+	GB28181MediaProtocol   string   `json:"gb28181MediaProtocol"`
+	GB28181MediaPortRange  []uint   `json:"gb28181MediaPortRange"`
+	GB28181KeepalivePeriod Duration `json:"gb28181KeepalivePeriod"`
+	GB28181PathTemplate    string   `json:"gb28181PathTemplate"`
+
 	// SRT server
 	SRT        bool   `json:"srt"`
 	SRTAddress string `json:"srtAddress"`
@@ -436,6 +452,9 @@ type Conf struct {
 	OptionalPaths map[string]*OptionalPath `json:"paths"`
 	Paths         map[string]*Path         `json:"-"` // filled by Validate()
 }
+
+// reGB28181ID is the format of GB28181 device and channel IDs.
+var reGB28181ID = regexp.MustCompile(`^[0-9]{20}$`)
 
 func (conf *Conf) setDefaults() {
 	// General
@@ -540,6 +559,17 @@ func (conf *Conf) setDefaults() {
 	conf.WebRTCSTUNGatherTimeout = 5 * Duration(time.Second)
 	conf.WebRTCHandshakeTimeout = 10 * Duration(time.Second)
 	conf.WebRTCTrackGatherTimeout = 2 * Duration(time.Second)
+
+	// GB28181 server
+	conf.GB28181 = false
+	conf.GB28181Address = ":5060"
+	conf.GB28181Transports = []string{"udp", "tcp"}
+	conf.GB28181Serial = "34020000002000000001"
+	conf.GB28181Realm = "3402000000"
+	conf.GB28181MediaProtocol = "udp"
+	conf.GB28181MediaPortRange = []uint{20000, 20999}
+	conf.GB28181KeepalivePeriod = 120 * Duration(time.Second)
+	conf.GB28181PathTemplate = "gb28181/$CHANNEL"
 
 	// SRT server
 	conf.SRT = true
@@ -994,6 +1024,49 @@ func (conf *Conf) Validate(l logger.Writer) error {
 
 	if conf.HTTPFLV && conf.HTTPFLVAddress == "" {
 		return fmt.Errorf("'httpflvAddress' must be set when HTTP-FLV is enabled")
+	}
+
+	// GB28181
+
+	if conf.GB28181 {
+		if conf.GB28181Address == "" {
+			return fmt.Errorf("'gb28181Address' must be set when GB28181 is enabled")
+		}
+
+		if len(conf.GB28181Transports) == 0 {
+			return fmt.Errorf("'gb28181Transports' must not be empty")
+		}
+
+		for _, transport := range conf.GB28181Transports {
+			if transport != "udp" && transport != "tcp" {
+				return fmt.Errorf("invalid 'gb28181Transports': '%s'", transport)
+			}
+		}
+
+		if !reGB28181ID.MatchString(conf.GB28181Serial) {
+			return fmt.Errorf("'gb28181Serial' must be a 20-digit GB28181 ID")
+		}
+
+		if conf.GB28181Realm == "" {
+			return fmt.Errorf("'gb28181Realm' must not be empty")
+		}
+
+		switch conf.GB28181MediaProtocol {
+		case "udp", "tcp":
+		default:
+			return fmt.Errorf("invalid 'gb28181MediaProtocol': '%s'", conf.GB28181MediaProtocol)
+		}
+
+		if len(conf.GB28181MediaPortRange) != 2 ||
+			conf.GB28181MediaPortRange[0] == 0 ||
+			conf.GB28181MediaPortRange[0] > conf.GB28181MediaPortRange[1] ||
+			conf.GB28181MediaPortRange[1] > 65535 {
+			return fmt.Errorf("invalid 'gb28181MediaPortRange'")
+		}
+
+		if !strings.Contains(conf.GB28181PathTemplate, "$CHANNEL") {
+			return fmt.Errorf("'gb28181PathTemplate' must contain '$CHANNEL'")
+		}
 	}
 
 	// WebRTC (deprecated params)

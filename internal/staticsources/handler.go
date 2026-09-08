@@ -13,6 +13,7 @@ import (
 	"github.com/bluenviron/mediamtx/internal/conf"
 	"github.com/bluenviron/mediamtx/internal/defs"
 	"github.com/bluenviron/mediamtx/internal/logger"
+	ssgb28181 "github.com/bluenviron/mediamtx/internal/staticsources/gb28181"
 	sshls "github.com/bluenviron/mediamtx/internal/staticsources/hls"
 	ssmoq "github.com/bluenviron/mediamtx/internal/staticsources/moq"
 	ssmpegts "github.com/bluenviron/mediamtx/internal/staticsources/mpegts"
@@ -76,6 +77,7 @@ type Handler struct {
 	RTPMaxPayloadSize int
 	SupportsIPv6      bool
 	Matches           []string
+	GB28181Server     ssgb28181.Server
 	PathManager       handlerPathManager
 	Parent            handlerParent
 
@@ -178,6 +180,13 @@ func (s *Handler) Initialize() {
 			ReadTimeout:       s.ReadTimeout,
 			UDPReadBufferSize: s.UDPReadBufferSize,
 			Parent:            s,
+		}
+
+	case strings.HasPrefix(s.Conf.Source, "gb28181://"):
+		s.instance = &ssgb28181.Source{
+			ReadTimeout: s.ReadTimeout,
+			Server:      s.GB28181Server,
+			Parent:      s,
 		}
 
 	case s.Conf.Source == "rpiCamera":

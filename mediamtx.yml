@@ -462,6 +462,44 @@ webrtcHandshakeTimeout: 10s
 webrtcTrackGatherTimeout: 2s
 
 ###############################################
+# Global settings -> GB28181 server
+
+# Enable the GB28181 server, that allows to receive streams from
+# chinese surveillance devices and platforms (GB/T 28181).
+# Devices register to this server, that then pulls their streams on demand.
+# In order to read a stream, define a path with source "gb28181://<channel ID>".
+gb28181: false
+# Address of the SIP listener.
+gb28181Address: :5060
+# Transport protocols of the SIP listener.
+gb28181Transports: [udp, tcp]
+# ID of this server (20 digits), that must be configured into devices.
+gb28181Serial: "34020000002000000001"
+# Domain (realm) of this server, that must be configured into devices.
+gb28181Realm: "3402000000"
+# Password requested to devices during registration.
+# If empty, devices are not authenticated.
+gb28181Password:
+# IP of this server, sent to devices inside SIP messages.
+# If empty, it is detected automatically.
+gb28181SIPIP:
+# IP on which media streams are received. If empty, all interfaces are used.
+gb28181MediaListenIP:
+# IP sent to devices inside SDP, on which they send media streams.
+# If empty, gb28181SIPIP is used.
+gb28181MediaIP:
+# Transport protocol of media streams. Available values are "udp" and "tcp".
+gb28181MediaProtocol: udp
+# Range of ports used to receive media streams.
+gb28181MediaPortRange: [20000, 20999]
+# Maximum time between two keepalives, after which a device is considered offline.
+gb28181KeepalivePeriod: 120s
+# Template of the path that contains the stream of a channel.
+# It is used by the Control API to report the path of each channel,
+# and must match the paths defined in the "paths" section.
+gb28181PathTemplate: gb28181/$CHANNEL
+
+###############################################
 # Global settings -> SRT server
 
 # Enable the SRT server, which allows to publish and read streams with the SRT protocol.

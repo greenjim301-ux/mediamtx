@@ -1970,3 +1970,214 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+
+  /v3/gb28181/devices/list:
+    get:
+      operationId: gb28181DevicesList
+      tags: [GB28181]
+      summary: returns all GB28181 devices.
+      description: ""
+      parameters:
+        - name: page
+          in: query
+          description: page number.
+          schema:
+            type: integer
+            default: 0
+        - name: itemsPerPage
+          in: query
+          description: items per page.
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: the request was successful.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GB28181DeviceList"
+        "400":
+          description: invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: authentication failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v3/gb28181/devices/get/{id}:
+    get:
+      operationId: gb28181DevicesGet
+      tags: [GB28181]
+      summary: returns a GB28181 device.
+      description: ""
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID of the device.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the request was successful.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GB28181Device"
+        "401":
+          description: authentication failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: device not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v3/gb28181/devices/refresh/{id}:
+    post:
+      operationId: gb28181DevicesRefresh
+      tags: [GB28181]
+      summary: asks a GB28181 device for its channel list.
+      description: ""
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID of the device.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the request was successful.
+        "401":
+          description: authentication failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: device not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v3/gb28181/channels/list:
+    get:
+      operationId: gb28181ChannelsList
+      tags: [GB28181]
+      summary: returns all channels of all GB28181 devices.
+      description: ""
+      parameters:
+        - name: page
+          in: query
+          description: page number.
+          schema:
+            type: integer
+            default: 0
+        - name: itemsPerPage
+          in: query
+          description: items per page.
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: the request was successful.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GB28181ChannelList"
+        "400":
+          description: invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: authentication failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v3/gb28181/channels/ptz/{id}:
+    post:
+      operationId: gb28181ChannelsPTZ
+      tags: [GB28181]
+      summary: sends a PTZ command to a GB28181 channel.
+      description: ""
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID of the channel.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GB28181PTZRequest"
+      responses:
+        "200":
+          description: the request was successful.
+        "400":
+          description: invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: authentication failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: channel not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
