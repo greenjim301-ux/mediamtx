@@ -8,13 +8,23 @@ React + TypeScript + Vite + Tailwind CSS，使用 shadcn/ui 风格的 Radix 组�
 共用监听端口。生产环境不需要 Node.js、独立前端服务或 CDN。
 
 ```sh
-cd web
-npm ci
-npm run build
-cd ..
-go build -o binaries/mediamtx .
-./binaries/mediamtx mediamtx.yml
+make
+# 首次运行时复制配置；已有本地配置不覆盖。
+cp -n mediamtx.yml mediamtx-local.yml
+./binaries/mediamtx mediamtx-local.yml
 ```
+
+在项目根目录运行 `make`（或 `make build`）即可构建前后端，输出
+`binaries/mediamtx`。构建环境须安装 Go（版本见 `go.mod`）、Node.js 及 npm
+（推荐 Node.js 24）。首次构建或前端依赖清单变化时自动执行 `npm ci`；
+每次构建都会生成 Go 所需资源、重新构建前端，再将页面嵌入 Go 程序。
+仅构建前端可运行 `make frontend`，查看其他命令可运行 `make help`。
+
+`mediamtx.yml` 是版本管理中的默认配置模板。管理页面会改写启动时指定的
+配置文件（包括重新排列 YAML 字段和注释），因此日常运行推荐使用
+`mediamtx-local.yml`。该文件及 `mediamtx-local*.yml` 备份不纳入 Git，
+页面创建的源和服务器配置保留在本地；不要将运行时生成的服务器路径、设备信息
+或密码提交到默认模板。已有本地配置时直接使用，不需要再次复制。
 
 默认访问：`http://服务器IP:9997/admin/`。
 

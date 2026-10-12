@@ -107,22 +107,21 @@ func findDocument(docs []*ast.DocumentNode) (*ast.DocumentNode, error) {
 	return doc, nil
 }
 
-// Unmarshal loads the configuration from YAML.
-func Unmarshal(buf []byte, dest any) error {
+func unmarshalValue(buf []byte) (any, error) {
 	tokens := lexer.Tokenize(string(buf))
 
 	if countDocumentHeaders(tokens) > 1 {
-		return fmt.Errorf("invalid YAML")
+		return nil, fmt.Errorf("invalid YAML")
 	}
 
 	file, err := parser.Parse(tokens, parser.ParseComments)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	doc, err := findDocument(file.Docs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	doc = convertLegacyBools(doc).(*ast.DocumentNode)
@@ -131,8 +130,31 @@ func Unmarshal(buf []byte, dest any) error {
 	if doc.Body != nil {
 		err = yaml.NodeToValue(doc.Body, &temp)
 		if err != nil {
-			return err
+			return nil, err
 		}
+	}
+	return temp, nil
+}
+
+// UnmarshalMap decodes an editable configuration without a JSON round trip,
+// preserving integer types as well as the loader's legacy boolean semantics.
+func UnmarshalMap(buf []byte) (map[string]any, error) {
+	value, err := unmarshalValue(buf)
+	if err != nil || value == nil {
+		return nil, err
+	}
+	doc, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("configuration must be a YAML mapping")
+	}
+	return doc, nil
+}
+
+// Unmarshal loads the configuration from YAML.
+func Unmarshal(buf []byte, dest any) error {
+	temp, err := unmarshalValue(buf)
+	if err != nil {
+		return err
 	}
 
 	// convert the generic map into JSON

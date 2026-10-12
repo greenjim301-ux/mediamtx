@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/bluenviron/mediamtx/internal/conf"
+	"github.com/bluenviron/mediamtx/internal/conf/yamlwrapper"
 	"github.com/bluenviron/mediamtx/internal/fileurl"
 	"github.com/bluenviron/mediamtx/internal/logger"
 	"github.com/goccy/go-yaml"
@@ -38,9 +39,9 @@ func jsonMap(v any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out map[string]any
-	err = json.Unmarshal(b, &out)
-	return out, err
+	// JSON is valid YAML. Decode directly to preserve integer types; ordinary
+	// json.Unmarshal into any would turn every number into float64.
+	return yamlwrapper.UnmarshalMap(b)
 }
 
 func (p *Core) doManagement(change conf.ManagementChange) (*conf.Conf, error) {
@@ -65,6 +66,12 @@ func (p *Core) doManagement(change conf.ManagementChange) (*conf.Conf, error) {
 	var doc map[string]any
 	comments := yaml.CommentMap{}
 	if err = yaml.UnmarshalWithOptions(raw, &doc, yaml.Strict(), yaml.CommentToMap(comments)); err != nil {
+		return nil, fmt.Errorf("configuration file cannot be edited: %w", err)
+	}
+	// Use the normal loader's scalar semantics before rewriting the document.
+	// Otherwise plain YAML 1.1 booleans (yes/no/on/off) become quoted strings,
+	// which the loader correctly rejects for boolean configuration fields.
+	if doc, err = yamlwrapper.UnmarshalMap(raw); err != nil {
 		return nil, fmt.Errorf("configuration file cannot be edited: %w", err)
 	}
 	if doc == nil {

@@ -1,12 +1,49 @@
 package yamlwrapper_test
 
 import (
+	"encoding/json"
 	"testing"
 
+	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/require"
 
 	"github.com/bluenviron/mediamtx/internal/conf/yamlwrapper"
 )
+
+func TestEditableMapPreservesScalarTypes(t *testing.T) {
+	input := []byte(`
+integer: 42
+largeInteger: 9007199254740993
+unsigned: 18446744073709551615
+decimal: 1.25
+wholeDecimal: 1.0
+exponent: 1e3
+negative: -12
+enabled: yes
+disabled: OFF
+quotedBool: "yes"
+quotedNumber: "34020000002000000001"
+empty:
+nested:
+  values: [20000, 20999]
+  empty: []
+`)
+	doc, err := yamlwrapper.UnmarshalMap(input)
+	require.NoError(t, err)
+	want, err := json.Marshal(doc)
+	require.NoError(t, err)
+	encoded, err := yaml.Marshal(doc)
+	require.NoError(t, err)
+	result, err := yamlwrapper.UnmarshalMap(encoded)
+	require.NoError(t, err)
+	got, err := json.Marshal(result)
+	require.NoError(t, err)
+	require.Equal(t, string(want), string(got))
+	require.Equal(t, true, result["enabled"])
+	require.Equal(t, false, result["disabled"])
+	require.Equal(t, "yes", result["quotedBool"])
+	require.Equal(t, "34020000002000000001", result["quotedNumber"])
+}
 
 func TestUnmarshalIntegerMapKey(t *testing.T) {
 	buf := []byte(`

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,6 +90,85 @@ func TestUploadedSourceLifecycle(t *testing.T) {
 	onDisk, _, err := conf.Load(configPath, nil, nil)
 	require.NoError(t, err)
 	require.NotContains(t, onDisk.Paths, "files/uploaded")
+}
+
+func TestManagementPreservesLegacyBooleans(t *testing.T) {
+	cfg := strings.NewReplacer(
+		"api: true", "api: yes",
+		"rtmp: false", "rtmp: no",
+		"hls: false", "hls: OFF",
+		"webrtc: false", "webrtc: No",
+		"srt: false", "srt: off",
+		"httpflv: true", "httpflv: ON",
+		"gb28181Password: original-secret", `gb28181Password: "yes"`,
+		"  all_others:\n", "  ~^gb28181/(.+)$:\n    source: gb28181://$G1\n    sourceOnDemand: yes # Preserve this comment\n  all_others:\n",
+	).Replace(managementTestConfig)
+	p, ok := newInstance(t, cfg)
+	require.True(t, ok)
+	defer p.Close()
+	postVideo(t, "files/legacy", "demo.mp4", uploadFixture(t), false, 200)
+	managementRequest(t, `{"action":"storage","global":{"apiFileUploadDirectory":"new uploads"}}`, 200)
+	managementRequest(t, `{"action":"add","name":"camera/legacy","path":{"source":"rtsp://127.0.0.1:19555/stream","sourceOnDemand":true}}`, 200)
+	managementRequest(t, `{"action":"delete","name":"files/legacy"}`, 200)
+	managementRequest(t, `{"action":"global","global":{"gb28181Realm":"4401000000"}}`, 200)
+	require.Eventually(t, func() bool {
+		return p.APIConfigSnapshot().GB28181Realm == "4401000000"
+	}, 3*time.Second, 20*time.Millisecond)
+	onDisk, _, err := conf.Load(p.confPath, nil, nil)
+	require.NoError(t, err)
+	require.True(t, onDisk.API)
+	require.True(t, onDisk.HTTPFLV)
+	require.False(t, onDisk.RTMP)
+	require.False(t, onDisk.HLS)
+	require.False(t, onDisk.WebRTC)
+	require.False(t, onDisk.SRT)
+	require.True(t, onDisk.Paths["~^gb28181/(.+)$"].SourceOnDemand)
+	require.Equal(t, "yes", onDisk.GB28181Password)
+	raw, err := os.ReadFile(p.confPath)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "# Preserve this comment")
+}
+
+func TestManagementFullDefaultConfiguration(t *testing.T) {
+	raw, err := os.ReadFile("../../mediamtx.yml")
+	require.NoError(t, err)
+	cfg := strings.NewReplacer(
+		"apiAddress: :9997", "apiAddress: 127.0.0.1:19997",
+		"rtspAddress: :8554", "rtspAddress: 127.0.0.1:19554",
+		"rtspTransports: [udp, multicast, tcp]", "rtspTransports: [tcp]",
+		"httpflvAddress: :8891", "httpflvAddress: 127.0.0.1:19891",
+		"rtmp: yes", "rtmp: false",
+		"rtmp: true", "rtmp: false",
+	).Replace(string(raw))
+	p, ok := newInstance(t, cfg)
+	require.True(t, ok)
+	defer p.Close()
+	initial, _, err := conf.Load(p.confPath, nil, nil)
+	require.NoError(t, err)
+	postVideo(t, "files/default-config", "demo.mp4", uploadFixture(t), false, 200)
+	managementRequest(t, `{"action":"add","name":"camera/default-config","path":{"source":"rtsp://127.0.0.1:19555/stream","sourceOnDemand":true}}`, 200)
+	managementRequest(t, `{"action":"storage","global":{"apiFileUploadDirectory":"new uploads","apiFileUploadMaxSize":"1G"}}`, 200)
+	managementRequest(t, `{"action":"delete","name":"files/default-config"}`, 200)
+	managementRequest(t, `{"action":"delete","name":"camera/default-config"}`, 200)
+	managementRequest(t, `{"action":"global","global":{"gb28181MediaPortRange":[31000,31999]}}`, 200)
+	require.Eventually(t, func() bool {
+		return p.APIConfigSnapshot().GB28181MediaPortRange[0] == 31000
+	}, 3*time.Second, 20*time.Millisecond)
+	onDisk, _, err := conf.Load(p.confPath, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, []uint{31000, 31999}, onDisk.GB28181MediaPortRange)
+	require.Equal(t, "new uploads", onDisk.APIFileUploadDirectory)
+	require.Equal(t, conf.StringSize(1024*1024*1024), onDisk.APIFileUploadMaxSize)
+	// Every other field in the complete distributed configuration must survive
+	// upload, add, storage, delete and numeric global changes unchanged.
+	onDisk.GB28181MediaPortRange = initial.GB28181MediaPortRange
+	onDisk.APIFileUploadDirectory = initial.APIFileUploadDirectory
+	onDisk.APIFileUploadMaxSize = initial.APIFileUploadMaxSize
+	want, err := json.Marshal(initial)
+	require.NoError(t, err)
+	got, err := json.Marshal(onDisk)
+	require.NoError(t, err)
+	require.JSONEq(t, string(want), string(got))
 }
 
 func TestFailedUploadsCleanUp(t *testing.T) {
