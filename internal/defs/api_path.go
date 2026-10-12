@@ -20,6 +20,7 @@ type APIPathSourceType string
 
 // source types.
 const (
+	APIPathSourceTypeFileSource      APIPathSourceType = "fileSource"
 	APIPathSourceTypeHLSSource       APIPathSourceType = "hlsSource"
 	APIPathSourceTypeRedirect        APIPathSourceType = "redirect"
 	APIPathSourceTypeRPICameraSource APIPathSourceType = "rpiCameraSource"

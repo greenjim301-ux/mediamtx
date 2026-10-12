@@ -543,6 +543,7 @@ pathDefaults:
   # Default path settings -> General
 
   # Source of the stream. This can be:
+  # * file:///absolute/path/video.mp4 (or .mkv) -> H264/H265 video loop, audio ignored
   # * publisher -> the stream is provided by a RTSP, RTMP, WebRTC or SRT client
   # * rtsp://user:pass@host:port/path -> the stream is pulled from another RTSP server / camera
   # * rtsps://user:pass@host:port/path -> the stream is pulled from another RTSP server / camera with RTSPS

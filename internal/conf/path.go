@@ -17,6 +17,7 @@ import (
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/mp4/codecs"
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/pmp4"
 
+	"github.com/bluenviron/mediamtx/internal/fileurl"
 	"github.com/bluenviron/mediamtx/internal/logger"
 )
 
@@ -594,6 +595,11 @@ func (pconf *Path) validate(
 		strings.HasPrefix(pconf.Source, "wheps://"):
 		_, err := validateURL(pconf.Source)
 		if err != nil {
+			return err
+		}
+
+	case strings.HasPrefix(pconf.Source, "file://"):
+		if _, err := fileurl.Path(pconf.Source); err != nil {
 			return err
 		}
 

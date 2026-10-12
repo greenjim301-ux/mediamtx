@@ -13,6 +13,7 @@ import (
 	"github.com/bluenviron/mediamtx/internal/conf"
 	"github.com/bluenviron/mediamtx/internal/defs"
 	"github.com/bluenviron/mediamtx/internal/logger"
+	ssfile "github.com/bluenviron/mediamtx/internal/staticsources/file"
 	ssgb28181 "github.com/bluenviron/mediamtx/internal/staticsources/gb28181"
 	sshls "github.com/bluenviron/mediamtx/internal/staticsources/hls"
 	ssmoq "github.com/bluenviron/mediamtx/internal/staticsources/moq"
@@ -181,6 +182,9 @@ func (s *Handler) Initialize() {
 			UDPReadBufferSize: s.UDPReadBufferSize,
 			Parent:            s,
 		}
+
+	case strings.HasPrefix(s.Conf.Source, "file://"):
+		s.instance = &ssfile.Source{Parent: s}
 
 	case strings.HasPrefix(s.Conf.Source, "gb28181://"):
 		s.instance = &ssgb28181.Source{
