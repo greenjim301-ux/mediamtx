@@ -954,6 +954,12 @@ paths:
   # my_camera:
   #   source: rtsp://my_camera
 
+  # Read any known GB28181 channel on demand, without a per-channel entry.
+  # The first capture group is the channel ID. Enable gb28181 to use this rule.
+  ~^gb28181/(.+)$:
+    source: gb28181://$G1
+    sourceOnDemand: yes
+
   # Settings under path "all_others" are applied to all paths that
   # do not match another entry.
   all_others:

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classify, classifyChannel } from "./devices";
+import { classify, classifyChannel, channelPreviewAction } from "./devices";
 import { fileSource, hideCredentials, previewURL } from "./api";
 describe("GB device classification", () => {
   it("identifies cameras using the type code, never every catalog node", () => {
@@ -30,5 +30,23 @@ describe("source URLs", () => {
     expect(previewURL("files/test video")).toBe(
       "/v3/preview/files/test%20video.flv",
     );
+  });
+});
+
+describe("GB channel preview routing", () => {
+  it("previews regex-covered channels without creating an explicit source", () => {
+    expect(
+      channelPreviewAction({ pathConfigured: true, pathConflict: false }),
+    ).toBe("preview");
+  });
+  it("adds a source only for an unconfigured channel", () => {
+    expect(
+      channelPreviewAction({ pathConfigured: false, pathConflict: false }),
+    ).toBe("add");
+  });
+  it("blocks a path bound to another source or channel", () => {
+    expect(
+      channelPreviewAction({ pathConfigured: false, pathConflict: true }),
+    ).toBe("conflict");
   });
 });

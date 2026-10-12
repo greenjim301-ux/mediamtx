@@ -13,18 +13,21 @@ var ErrGB28181ChannelNotFound = errors.New("channel not found")
 
 // APIGB28181Channel is a channel of a GB28181 device.
 type APIGB28181Channel struct {
-	ID           string  `json:"id"`
-	DeviceID     string  `json:"deviceId"`
-	Name         string  `json:"name"`
-	Manufacturer string  `json:"manufacturer"`
-	Model        string  `json:"model"`
-	Address      string  `json:"address"`
-	ParentID     string  `json:"parentId"`
-	Online       bool    `json:"online"`
-	PTZType      int     `json:"ptzType"`
-	Longitude    float64 `json:"longitude"`
-	Latitude     float64 `json:"latitude"`
-	Path         string  `json:"path"`
+	ID             string  `json:"id"`
+	DeviceID       string  `json:"deviceId"`
+	Name           string  `json:"name"`
+	Manufacturer   string  `json:"manufacturer"`
+	Model          string  `json:"model"`
+	Address        string  `json:"address"`
+	ParentID       string  `json:"parentId"`
+	Online         bool    `json:"online"`
+	PTZType        int     `json:"ptzType"`
+	Longitude      float64 `json:"longitude"`
+	Latitude       float64 `json:"latitude"`
+	Path           string  `json:"path"`
+	PathConfigured bool    `json:"pathConfigured"`
+	PathConflict   bool    `json:"pathConflict"`
+	PathConfigName string  `json:"pathConfigName,omitempty"`
 }
 
 // APIGB28181ChannelList is a list of GB28181 channels.

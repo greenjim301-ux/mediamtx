@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/bluenviron/mediamtx/internal/conf"
 	"github.com/bluenviron/mediamtx/internal/defs"
 	"github.com/bluenviron/mediamtx/internal/protocols/gb28181"
 )
@@ -30,6 +33,12 @@ func (a *API) onGB28181DevicesList(ctx *gin.Context) {
 		return
 	}
 
+	c := a.Parent.APIConfigSnapshot()
+	for i := range data.Items {
+		for j := range data.Items[i].Channels {
+			updateGB28181PathState(&data.Items[i].Channels[j], c.Paths)
+		}
+	}
 	data.ItemCount = len(data.Items)
 	pageCount, err := paginate(&data.Items, ctx.Query("itemsPerPage"), ctx.Query("page"))
 	if err != nil {
@@ -52,6 +61,10 @@ func (a *API) onGB28181DevicesGet(ctx *gin.Context) {
 		return
 	}
 
+	c := a.Parent.APIConfigSnapshot()
+	for i := range data.Channels {
+		updateGB28181PathState(&data.Channels[i], c.Paths)
+	}
 	ctx.JSON(http.StatusOK, data)
 }
 
@@ -69,6 +82,10 @@ func (a *API) onGB28181ChannelsList(ctx *gin.Context) {
 		return
 	}
 	data.PageCount = pageCount
+	c := a.Parent.APIConfigSnapshot()
+	for i := range data.Items {
+		updateGB28181PathState(&data.Items[i], c.Paths)
+	}
 
 	ctx.JSON(http.StatusOK, data)
 }
@@ -150,4 +167,32 @@ func (a *API) onGB28181PTZ(ctx *gin.Context) {
 	}
 
 	a.writeOK(ctx)
+}
+
+// Report the effective binding using the same matcher as the path manager.
+// An explicit path takes precedence over regex rules; fallback publisher paths
+// leave room for adding a dedicated source. Never report another channel as ready.
+func updateGB28181PathState(channel *defs.APIGB28181Channel, paths map[string]*conf.Path) {
+	channel.PathConfigured = false
+	channel.PathConflict = false
+	channel.PathConfigName = ""
+	path, matches, err := conf.FindPathConf(paths, channel.Path)
+	if err != nil {
+		return
+	}
+	source := path.Source
+	for i := len(matches) - 1; i >= 1; i-- {
+		source = strings.ReplaceAll(source, "$G"+strconv.Itoa(i), matches[i])
+	}
+	source = strings.ReplaceAll(source, "$MTX_QUERY", "")
+	if strings.HasPrefix(source, "gb28181://") {
+		id := strings.Trim(strings.TrimPrefix(source, "gb28181://"), "/")
+		if i := strings.LastIndex(id, "/"); i >= 0 {
+			id = id[i+1:]
+		}
+		channel.PathConfigured = id == channel.ID
+	}
+	fallback := (path.Name == "all" || path.Name == "all_others") && source == "publisher"
+	channel.PathConflict = !channel.PathConfigured && !fallback
+	channel.PathConfigName = path.Name
 }

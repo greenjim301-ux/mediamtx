@@ -33,3 +33,11 @@ export const kindLabels: Record<Kind, string> = {
   directory: "目录节点",
   unknown: "待识别",
 };
+
+// Binding state comes from Go's actual path matcher, including regex precedence.
+export function channelPreviewAction(
+  channel: Pick<Channel, "pathConfigured" | "pathConflict">,
+): "preview" | "add" | "conflict" {
+  if (channel.pathConflict) return "conflict";
+  return channel.pathConfigured ? "preview" : "add";
+}

@@ -14,6 +14,9 @@ export type RuntimePath = {
   outboundBytes: number;
 };
 export type Channel = {
+  pathConfigured: boolean;
+  pathConflict: boolean;
+  pathConfigName?: string;
   id: string;
   deviceId: string;
   name: string;

@@ -54,7 +54,12 @@ import {
   type PathConf,
   type Snapshot,
 } from "@/lib/api";
-import { classify, classifyChannel, kindLabels } from "@/lib/devices";
+import {
+  classify,
+  classifyChannel,
+  kindLabels,
+  channelPreviewAction,
+} from "@/lib/devices";
 
 type Page = "rtsp" | "file" | "gb";
 const pages = {
@@ -276,13 +281,13 @@ export default function App() {
         .includes(query.toLowerCase()),
     );
   const nationalPreview = async (c: Channel) => {
-    const existing = data?.configs.find((p) => p.name === c.path);
-    if (existing && !existing.source.startsWith("gb28181://")) {
+    const action = channelPreviewAction(c);
+    if (action === "conflict") {
       setError("该通道的流路径已被其他视频源占用，请修改国标路径模板。");
       return;
     }
     try {
-      if (!existing)
+      if (action === "add")
         await save(
           {
             action: "add",
@@ -687,9 +692,8 @@ export default function App() {
                     <tbody>
                       {channels.map((c) => {
                         const info = classifyChannel(c, data?.devices || []);
-                        const configured = data?.configs.some(
-                          (p) => p.name === c.path,
-                        );
+                        const previewAction = channelPreviewAction(c);
+                        const configured = previewAction === "preview";
                         const playable =
                           info.kind === "camera" || info.kind === "unknown";
                         return (
@@ -736,6 +740,7 @@ export default function App() {
                                     size="sm"
                                     disabled={
                                       !c.online ||
+                                      c.pathConflict ||
                                       busy ||
                                       !data?.global.httpflv ||
                                       (!configured && !canEdit)
@@ -743,11 +748,13 @@ export default function App() {
                                     onClick={() => void nationalPreview(c)}
                                   >
                                     <Video />
-                                    {configured
-                                      ? "预览"
-                                      : info.kind === "unknown"
-                                        ? "尝试接入"
-                                        : "接入并预览"}
+                                    {c.pathConflict
+                                      ? "路径冲突"
+                                      : configured
+                                        ? "预览"
+                                        : info.kind === "unknown"
+                                          ? "尝试接入"
+                                          : "接入并预览"}
                                   </Button>
                                 )}
                               </div>
