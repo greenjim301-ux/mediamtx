@@ -27,7 +27,8 @@ type httpServer struct {
 	pathManager     serverPathManager
 	parent          *Server
 
-	inner *httpp.Server
+	router http.Handler
+	inner  *httpp.Server
 }
 
 func (s *httpServer) initialize() error {
@@ -43,6 +44,7 @@ func (s *httpServer) initialize() error {
 		proto = "httpflv"
 	}
 
+	s.router = router
 	s.inner = &httpp.Server{
 		Address:           s.address,
 		AllowOrigins:      s.allowOrigins,

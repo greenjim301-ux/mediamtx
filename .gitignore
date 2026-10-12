@@ -10,3 +10,6 @@
 /internal/core/auto.crt
 /internal/core/auto.key
 /mediamtx-local.yml
+
+/web/node_modules/
+/web/*.tsbuildinfo

@@ -144,7 +144,7 @@ authJWTAudience:
 # Global settings -> Control API
 
 # Enable the control API server, which allows to control the server.
-api: false
+api: true
 # Address of the TCP/HTTP listener.
 apiAddress: :9997
 # Enable HTTPS.
@@ -311,7 +311,7 @@ rtmpTrustedProxies: []
 # Global settings -> HLS server
 
 # Enable the HLS server, which allows to read streams with the HLS protocol.
-hls: true
+hls: false
 # Address of the TCP/HTTP listener.
 hlsAddress: :8888
 # Enable HTTPS.
@@ -381,7 +381,7 @@ hlsCDNSecret: ""
 # Note that browser players usually support AAC only, and not G711.
 # Since there's no GOP cache, a reader that connects mid-stream waits
 # for the next key frame before receiving any data.
-httpflv: false
+httpflv: true
 # Address of the TCP/HTTP listener.
 httpflvAddress: :8891
 # Enable HTTPS.
@@ -405,7 +405,7 @@ httpflvTrustedProxies: []
 # Global settings -> WebRTC server
 
 # Enable the WebRTC server, which allows to publish and read streams with the WebRTC protocol.
-webrtc: true
+webrtc: false
 # Address of the WebRTC TCP/HTTP listener.
 webrtcAddress: :8889
 # Enable HTTPS.
@@ -503,7 +503,7 @@ gb28181PathTemplate: gb28181/$CHANNEL
 # Global settings -> SRT server
 
 # Enable the SRT server, which allows to publish and read streams with the SRT protocol.
-srt: true
+srt: false
 # Address of the UDP/SRT listener.
 srtAddress: :8890
 
@@ -511,7 +511,7 @@ srtAddress: :8890
 # MoQ server
 
 # Enable the MoQ (Media over QUIC) server, which allows to publish and read streams with the MoQ protocol.
-moq: true
+moq: false
 # Address of the TCP/HTTP2 listener.
 # This hosts the web client.
 moqHTTP2Address: :8892

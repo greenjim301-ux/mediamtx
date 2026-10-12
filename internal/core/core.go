@@ -231,6 +231,7 @@ type Core struct {
 	confWatcher     *confwatcher.ConfWatcher
 
 	// in
+	chManagement                 chan managementReq
 	chAPIConfigGlobalPatch       chan configGlobalPatchReq
 	chAPIConfigPathDefaultsPatch chan configPathDefaultsPatchReq
 	chAPIConfigPathAdd           chan configPathAddReq
@@ -321,6 +322,7 @@ func New(args []string) (*Core, bool) {
 	p := &Core{
 		ctx:                          ctx,
 		ctxCancel:                    ctxCancel,
+		chManagement:                 make(chan managementReq),
 		chAPIConfigGlobalPatch:       make(chan configGlobalPatchReq),
 		chAPIConfigPathDefaultsPatch: make(chan configPathDefaultsPatchReq),
 		chAPIConfigPathAdd:           make(chan configPathAddReq),
@@ -412,6 +414,16 @@ outer:
 			if err != nil {
 				p.Log(logger.Error, "%s", err)
 				break outer
+			}
+
+		case req := <-p.chManagement:
+			next, err := p.doManagement(req.change)
+			req.res <- err
+			if err == nil {
+				if err = p.reloadConf(next); err != nil {
+					p.Log(logger.Error, "%s", err)
+					break outer
+				}
 			}
 
 		case req := <-p.chAPIConfigGlobalPatch:
@@ -996,6 +1008,7 @@ func (p *Core) createResources(initial bool) error {
 			RTMPSServer:    p.rtmpsServer,
 			HLSServer:      p.hlsServer,
 			GB28181Server:  p.gb28181Server,
+			HTTPFLVServer:  p.httpFLVServer,
 			WebRTCServer:   p.webRTCServer,
 			SRTServer:      p.srtServer,
 			MoQServer:      p.moqServer,
@@ -1328,6 +1341,7 @@ func (p *Core) closeResources(newConf *conf.Conf) {
 		closeRTSPSServer ||
 		closeRTMPServer ||
 		closeRTMPSServer ||
+		closeHTTPFLVServer ||
 		closeHLSServer ||
 		closeGB28181Server ||
 		closeWebRTCServer ||

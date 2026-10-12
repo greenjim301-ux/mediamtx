@@ -3,6 +3,7 @@ package httpflv
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/bluenviron/mediamtx/internal/conf"
 	"github.com/bluenviron/mediamtx/internal/defs"
@@ -83,4 +84,9 @@ func (s *Server) Close() {
 	s.Log(logger.Info, "closing")
 	s.ctxCancel()
 	s.httpServer.close()
+}
+
+// ServeHTTP exposes the authenticated FLV handler for same-origin API previews.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.httpServer.router.ServeHTTP(w, r)
 }

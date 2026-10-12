@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"reflect"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -87,6 +88,7 @@ type API struct {
 	SRTServer      defs.APISRTServer
 	MoQServer      defs.APIMoQServer
 	GB28181Server  defs.APIGB28181Server
+	HTTPFLVServer  http.Handler
 	Parent         apiParent
 
 	httpServer *httpp.Server
@@ -99,7 +101,11 @@ func (a *API) Initialize() error {
 	router.Use(a.middlewarePreflightRequests)
 	router.Use(a.middlewareAuth)
 
+	mountAdmin(router)
 	group := router.Group("/v3")
+	group.GET("/management/info", a.onManagementInfo)
+	group.POST("/management/apply", a.onManagementApply)
+	group.GET("/preview/*name", a.onPreview)
 
 	group.GET("/info", a.onInfo)
 
@@ -323,6 +329,9 @@ func (a *API) middlewarePreflightRequests(ctx *gin.Context) {
 }
 
 func (a *API) middlewareAuth(ctx *gin.Context) {
+	if ctx.Request.Method == http.MethodGet && (ctx.Request.URL.Path == "/" || ctx.Request.URL.Path == "/admin" || strings.HasPrefix(ctx.Request.URL.Path, "/admin/")) {
+		return
+	}
 	req := &auth.Request{
 		Action:               conf.AuthActionAPI,
 		Query:                ctx.Request.URL.RawQuery,

@@ -1133,6 +1133,14 @@ func TestDefaultConfFile(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "", confPath2)
 
+		// The shipped configuration selects the administration profile;
+		// programmatic defaults remain compatible with upstream.
+		conf2.API = true
+		conf2.HLS = false
+		conf2.HTTPFLV = true
+		conf2.WebRTC = false
+		conf2.SRT = false
+		conf2.MoQ = false
 		require.Equal(t, conf1, conf2)
 	}()
 
