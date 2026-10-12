@@ -9,7 +9,7 @@ NODE_IMAGE = node:24-alpine3.24
 
 build: frontend generate
 	mkdir -p binaries
-	go build -o binaries/mediamtx .
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o binaries/mediamtx .
 
 frontend: web/node_modules/.mediamtx-dependencies
 	cd web && npm run build

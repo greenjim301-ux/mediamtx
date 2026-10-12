@@ -18,6 +18,8 @@ cp -n mediamtx.yml mediamtx-local.yml
 `binaries/mediamtx`。构建环境须安装 Go（版本见 `go.mod`）、Node.js 及 npm
 （推荐 Node.js 24）。首次构建或前端依赖清单变化时自动执行 `npm ci`；
 每次构建都会生成 Go 所需资源、重新构建前端，再将页面嵌入 Go 程序。
+Go 编译使用 `CGO_ENABLED=0`、`-trimpath` 和 `-ldflags="-s -w"`，
+关闭 CGO 并去除构建路径、符号表及调试信息，减小二进制体积。
 仅构建前端可运行 `make frontend`，查看其他命令可运行 `make help`。
 
 `mediamtx.yml` 是版本管理中的默认配置模板。管理页面会改写启动时指定的
