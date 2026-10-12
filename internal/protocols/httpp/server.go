@@ -208,7 +208,11 @@ func (s *Server) Close() {
 	s.ln.Close()
 
 	ctx, ctxCancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	s.inner.Shutdown(ctx) //nolint:errcheck
+	if err := s.inner.Shutdown(ctx); err != nil {
+		// Shutdown does not interrupt active streaming requests on timeout.
+		// Close cancels them before waiting for their handlers to finish.
+		s.inner.Close() //nolint:errcheck
+	}
 	ctxCancel()
 
 	s.tracker.close()

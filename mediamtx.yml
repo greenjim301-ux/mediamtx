@@ -147,6 +147,11 @@ authJWTAudience:
 api: true
 # Address of the TCP/HTTP listener.
 apiAddress: :9997
+# Directory for video files uploaded through the administration page.
+# Relative paths are resolved against the configuration file directory.
+apiFileUploadDirectory: ./uploads
+# Maximum size of one uploaded video file.
+apiFileUploadMaxSize: 2G
 # Enable HTTPS.
 apiEncryption: false
 # Path to the server key. This is needed only when encryption is yes.

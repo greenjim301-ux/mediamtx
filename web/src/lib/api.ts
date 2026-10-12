@@ -1,4 +1,6 @@
 export type PathConf = {
+  fileUploadDirectory?: string;
+  fileUploadOriginalName?: string;
   name: string;
   source: string;
   sourceOnDemand: boolean;
@@ -38,6 +40,8 @@ export type Device = {
   lastKeepaliveTime?: string;
 };
 export type GlobalConfig = {
+  apiFileUploadDirectory: string;
+  apiFileUploadMaxSize: string;
   gb28181: boolean;
   gb28181Address: string;
   gb28181Transports: string[];
@@ -55,7 +59,12 @@ export type GlobalConfig = {
   rtspAddress: string;
   [key: string]: unknown;
 };
-export type Management = { configFile: string; persistent: boolean };
+export type Management = {
+  configFile: string;
+  persistent: boolean;
+  uploadDirectory: string;
+  maxUploadSize: number;
+};
 export type Snapshot = {
   configs: PathConf[];
   paths: RuntimePath[];
@@ -156,4 +165,69 @@ export function fileSource(path: string) {
 }
 export function hideCredentials(source: string) {
   return source.replace(/(rtsps?:\/\/)[^/@]+@/i, "$1••••@");
+}
+
+export function uploadFile(
+  name: string,
+  file: File,
+  onProgress: (percent: number) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(
+      "POST",
+      "/v3/management/files/upload/" +
+        name.split("/").map(encodeURIComponent).join("/"),
+    );
+    for (const [key, value] of Object.entries(authHeaders()))
+      xhr.setRequestHeader(key, value);
+    const abort = () => xhr.abort();
+    const cleanup = () => signal.removeEventListener("abort", abort);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable)
+        onProgress(Math.min(100, Math.round((e.loaded / e.total) * 100)));
+    };
+    xhr.onload = () => {
+      cleanup();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+        return;
+      }
+      let message = `上传失败 (${xhr.status})`;
+      try {
+        message = JSON.parse(xhr.responseText).error || message;
+      } catch {
+        /* no JSON */
+      }
+      reject(new Error(message));
+    };
+    xhr.onerror = () => {
+      cleanup();
+      reject(new Error("上传连接中断，请检查服务状态或网络。"));
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(new Error("上传已取消。"));
+    };
+    if (signal.aborted) {
+      reject(new Error("上传已取消。"));
+      return;
+    }
+    signal.addEventListener("abort", abort, { once: true });
+    const body = new FormData();
+    body.append("file", file);
+    xhr.send(body);
+  });
+}
+export function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let n = bytes / 1024,
+    i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
 }

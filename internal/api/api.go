@@ -105,6 +105,7 @@ func (a *API) Initialize() error {
 	group := router.Group("/v3")
 	group.GET("/management/info", a.onManagementInfo)
 	group.POST("/management/apply", a.onManagementApply)
+	group.POST("/management/files/upload/*name", a.onFileUpload)
 	group.GET("/preview/*name", a.onPreview)
 
 	group.GET("/info", a.onInfo)

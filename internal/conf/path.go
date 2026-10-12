@@ -221,6 +221,8 @@ type Path struct {
 
 	// General
 	Source                     string   `json:"source"`
+	FileUploadDirectory        string   `json:"fileUploadDirectory"`
+	FileUploadOriginalName     string   `json:"fileUploadOriginalName"`
 	SourceFingerprint          string   `json:"sourceFingerprint"`
 	SourceOnDemand             bool     `json:"sourceOnDemand"`
 	SourceOnDemandStartTimeout Duration `json:"sourceOnDemandStartTimeout"`

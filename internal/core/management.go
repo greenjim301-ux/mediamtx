@@ -70,8 +70,18 @@ func (p *Core) doManagement(change conf.ManagementChange) (*conf.Conf, error) {
 	if doc == nil {
 		doc = map[string]any{}
 	}
+	var deleteCurrent *conf.Path
 	switch change.Action {
-	case "add":
+	case "add", "upload":
+		if change.Action == "upload" {
+			if change.UploadDirectory == "" || change.UploadFileName == "" {
+				return nil, fmt.Errorf("use the upload endpoint to upload a video file")
+			}
+			change.Path, err = uploadedPath(change)
+			if err != nil {
+				return nil, err
+			}
+		}
 		if change.Name == "" || strings.HasPrefix(change.Name, "~") || change.Name == "all" || change.Name == "all_others" || change.Path == nil {
 			return nil, fmt.Errorf("a named source is required")
 		}
@@ -80,7 +90,7 @@ func (p *Core) doManagement(change conf.ManagementChange) (*conf.Conf, error) {
 			return nil, er
 		}
 		for k := range patch {
-			if k != "source" && k != "rtspTransport" && k != "sourceOnDemand" {
+			if k != "source" && k != "rtspTransport" && k != "sourceOnDemand" && !(change.Action == "upload" && (k == "fileUploadDirectory" || k == "fileUploadOriginalName")) {
 				return nil, fmt.Errorf("unsupported source setting %s", k)
 			}
 		}
@@ -128,8 +138,9 @@ func (p *Core) doManagement(change conf.ManagementChange) (*conf.Conf, error) {
 		if !exists || (!strings.HasPrefix(current.Source, "rtsp://") && !strings.HasPrefix(current.Source, "rtsps://") && !strings.HasPrefix(current.Source, "file://") && !strings.HasPrefix(current.Source, "gb28181://")) {
 			return nil, fmt.Errorf("only configured RTSP, file or GB28181 sources can be deleted")
 		}
+		deleteCurrent = current
 		delete(paths, change.Name)
-	case "global":
+	case "global", "storage":
 		if change.Global == nil {
 			return nil, fmt.Errorf("global settings are required")
 		}
@@ -138,8 +149,8 @@ func (p *Core) doManagement(change conf.ManagementChange) (*conf.Conf, error) {
 			return nil, er
 		}
 		for k, val := range patch {
-			if !strings.HasPrefix(k, "gb28181") {
-				return nil, fmt.Errorf("only GB28181 settings may be changed here")
+			if (change.Action == "global" && !strings.HasPrefix(k, "gb28181")) || (change.Action == "storage" && k != "apiFileUploadDirectory" && k != "apiFileUploadMaxSize") {
+				return nil, fmt.Errorf("unsupported management setting %s", k)
 			}
 			doc[k] = val
 		}
@@ -190,9 +201,53 @@ func (p *Core) doManagement(change conf.ManagementChange) (*conf.Conf, error) {
 	if !bytes.Equal(raw, latest) {
 		return nil, fmt.Errorf("configuration file changed concurrently; refresh and retry")
 	}
+
+	var deletion *uploadDeletion
+	if deleteCurrent != nil {
+		deletion, err = p.stageUploadDeletion(change.Name, deleteCurrent)
+		if err != nil {
+			return nil, err
+		}
+		if deletion != nil {
+			defer deletion.root.Close()
+		}
+	}
 	if err = os.Rename(tmpName, path); err != nil {
+		if restoreErr := deletion.rollback(); restoreErr != nil {
+			return nil, fmt.Errorf("configuration save failed (%v), file recovery failed (%v)", err, restoreErr)
+		}
 		return nil, fmt.Errorf("cannot save configuration: %w", err)
 	}
+	if deletion != nil {
+		if err = deletion.root.Remove(deletion.tombstone); err != nil {
+			fileErr := deletion.rollback()
+			confErr := restoreConfigurationFile(path, raw, st.Mode().Perm())
+			return nil, fmt.Errorf("cannot delete uploaded file: %v (file recovery: %v; configuration recovery: %v)", err, fileErr, confErr)
+		}
+	}
+
 	p.Log(logger.Info, "configuration saved by administration UI")
 	return next, nil
+}
+
+func restoreConfigurationFile(path string, data []byte, mode os.FileMode) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".mediamtx-recover-*.yml")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if err = f.Chmod(mode); err != nil {
+		return err
+	}
+	if _, err = f.Write(data); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }

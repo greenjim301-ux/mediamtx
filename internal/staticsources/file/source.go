@@ -203,3 +203,37 @@ func (s *Source) Run(params defs.StaticSourceRunParams) error {
 		base += v.duration
 	}
 }
+
+// Validate inspects a local video before making an uploaded source available.
+// Audio is ignored exactly as it is during playback.
+func Validate(ctx context.Context, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !st.Mode().IsRegular() {
+		return fmt.Errorf("video must be a regular file")
+	}
+	var v *video
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mp4":
+		v, err = readMP4(ctx, f, st.Size())
+	case ".mkv":
+		v, err = readMKV(ctx, f, st.Size())
+	default:
+		return fmt.Errorf("only MP4 and MKV video files are supported")
+	}
+	if err != nil {
+		return err
+	}
+	if err = v.finalize(); err != nil {
+		return err
+	}
+	_, err = v.payload(f, v.samples[0])
+	return err
+}

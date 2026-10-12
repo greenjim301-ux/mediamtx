@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useRef,
   useEffect,
   useMemo,
   useState,
@@ -44,7 +45,8 @@ import {
 import { Preview } from "@/components/preview";
 import {
   apply,
-  fileSource,
+  uploadFile,
+  formatBytes,
   hideCredentials,
   request,
   setAuthorization,
@@ -176,6 +178,7 @@ export default function App() {
   const [preview, setPreview] = useState<string | null>(null);
   const [connection, setConnection] = useState(false);
   const [gbSettings, setGBSettings] = useState(false);
+  const [storageSettings, setStorageSettings] = useState(false);
   const [cameraOnly, setCameraOnly] = useState(true);
   const [selectedDevice, setSelectedDevice] = useState("");
   const refresh = useCallback(async (showLoading = false) => {
@@ -207,31 +210,33 @@ export default function App() {
     window.addEventListener("hashchange", change);
     return () => window.removeEventListener("hashchange", change);
   }, []);
+  const refreshSaved = async (message: string) => {
+    setNotice(message);
+    let refreshed = false;
+    for (let i = 0; i < 8; i++) {
+      await new Promise((r) => setTimeout(r, 300));
+      try {
+        const next = await snapshot();
+        setData(next);
+        setError("");
+        refreshed = true;
+        break;
+      } catch {
+        /* hot reload */
+      }
+    }
+    if (!refreshed)
+      setError("配置已写入，暂时无法连接服务；请检查服务日志并刷新。");
+  };
   const save = async (change: unknown, message: string) => {
     setBusy(true);
     setError("");
     setNotice("");
     try {
       await apply(change);
-      setNotice(message);
-      let refreshed = false;
-      for (let i = 0; i < 8; i++) {
-        await new Promise((r) => setTimeout(r, 300));
-        try {
-          const next = await snapshot();
-          setData(next);
-          setError("");
-          refreshed = true;
-          break;
-        } catch {
-          /* service can briefly restart after a global setting change */
-        }
-      }
-      if (!refreshed)
-        setError("配置已写入，暂时无法连接服务；请检查服务日志并刷新。");
+      await refreshSaved(message);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg);
+      setError(e instanceof Error ? e.message : String(e));
       throw e;
     } finally {
       setBusy(false);
@@ -439,6 +444,31 @@ export default function App() {
           {data && !data.management.persistent && (
             <div className="banner banner-warning">
               服务未加载配置文件，无法持久保存。请使用配置文件启动 MediaMTX。
+            </div>
+          )}
+          {page === "file" && data && (
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3">
+              <div className="min-w-0 text-xs text-muted-foreground">
+                <div>
+                  上传目录：
+                  <span className="break-all font-mono text-slate-600">
+                    {data.management.uploadDirectory}
+                  </span>
+                </div>
+                <div className="mt-1">
+                  单文件上限 {formatBytes(data.management.maxUploadSize)} · MP4
+                  / MKV · H.264 / H.265
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!canEdit}
+                onClick={() => setStorageSettings(true)}
+              >
+                <Settings2 />
+                上传设置
+              </Button>
             </div>
           )}
           <div className="metrics-grid">
@@ -788,7 +818,7 @@ export default function App() {
                   <thead>
                     <tr>
                       <th>名称 / 流路径</th>
-                      <th>{page === "rtsp" ? "源地址" : "服务器文件路径"}</th>
+                      <th>{page === "rtsp" ? "源地址" : "视频文件"}</th>
                       <th>状态</th>
                       <th>调阅连接</th>
                       <th className="text-right">操作</th>
@@ -815,7 +845,8 @@ export default function App() {
                               className="source-address"
                               title={hideCredentials(c.source)}
                             >
-                              {hideCredentials(c.source)}
+                              {c.fileUploadOriginalName ||
+                                hideCredentials(c.source)}
                             </div>
                             <small className="text-[11px] text-muted-foreground">
                               {page === "file"
@@ -884,7 +915,7 @@ export default function App() {
                     ? "试试其他名称或地址。"
                     : page === "rtsp"
                       ? "填写摄像头的 RTSP 地址，即可统一调阅并在页面预览。"
-                      : "指定服务器上的 MP4 或 MKV 文件路径，即可持续循环播放。"
+                      : "上传本机的 MP4 或 MKV 视频，保存到服务器后持续循环播放。"
                 }
                 action={
                   !query && (
@@ -920,8 +951,26 @@ export default function App() {
         open={adding}
         kind={page === "file" ? "file" : "rtsp"}
         busy={busy}
+        uploadDirectory={data?.management.uploadDirectory || ""}
+        maxUploadSize={data?.management.maxUploadSize || 0}
         onClose={() => setAdding(false)}
-        onSave={async (name, source) => {
+        onSave={async (name, source, file, progress, signal) => {
+          if (file && progress && signal) {
+            setBusy(true);
+            setError("");
+            setNotice("");
+            try {
+              await uploadFile(name, file, progress, signal);
+              await refreshSaved("视频已上传，文件源已创建并保存。");
+              setAdding(false);
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+              throw e;
+            } finally {
+              setBusy(false);
+            }
+            return;
+          }
           await save(
             {
               action: "add",
@@ -948,7 +997,10 @@ export default function App() {
           </DialogTitle>
           <DialogDescription className="mt-3 text-sm leading-6">
             删除 <strong>{deleting?.name}</strong>{" "}
-            的接入配置。正在调阅该源的客户端会断开；文件源的原始视频文件会保留。
+            的接入配置。正在调阅该源的客户端会断开。
+            {deleting?.fileUploadDirectory
+              ? "该源对应的上传视频文件也会删除，此操作无法撤销。"
+              : "手工配置的原始文件会保留。"}
           </DialogDescription>
           {error && (
             <p role="alert" className="mt-3 text-sm text-red-600">
@@ -1008,6 +1060,22 @@ export default function App() {
           }}
         />
       )}
+      {data && (
+        <StorageSettings
+          open={storageSettings}
+          config={data.global}
+          busy={busy}
+          canEdit={canEdit}
+          onClose={() => setStorageSettings(false)}
+          onSave={async (global) => {
+            await save(
+              { action: "storage", global },
+              "上传设置已保存。已有文件保留在原目录。",
+            );
+            setStorageSettings(false);
+          }}
+        />
+      )}
       <Preview path={preview} onClose={() => setPreview(null)} />
     </div>
   );
@@ -1017,25 +1085,41 @@ function AddSource({
   open,
   kind,
   busy,
+  uploadDirectory,
+  maxUploadSize,
   onClose,
   onSave,
 }: {
   open: boolean;
   kind: "rtsp" | "file";
   busy: boolean;
+  uploadDirectory: string;
+  maxUploadSize: number;
   onClose: () => void;
-  onSave: (name: string, source: string) => Promise<void>;
+  onSave: (
+    name: string,
+    source: string,
+    file?: File,
+    progress?: (n: number) => void,
+    signal?: AbortSignal,
+  ) => Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [source, setSource] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState("");
+  const [progress, setProgress] = useState(0);
+  const controller = useRef<AbortController | null>(null);
   useEffect(() => {
     if (open) {
       setName("");
       setSource("");
+      setFile(null);
       setError("");
+      setProgress(0);
     }
   }, [open]);
+  useEffect(() => () => controller.current?.abort(), []);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
@@ -1043,19 +1127,27 @@ function AddSource({
       const n = name.trim();
       if (!n || n.startsWith("~") || n === "all" || n === "all_others")
         throw new Error("请输入一个具体的流路径名称。");
-      let url = source.trim();
       if (kind === "file") {
-        url = fileSource(url);
-        if (!/\.(mp4|mkv)$/i.test(new URL(url).pathname))
-          throw new Error("文件格式必须为 MP4 或 MKV。");
+        if (!file) throw new Error("请选择视频文件。");
+        if (!/\.(mp4|mkv)$/i.test(file.name))
+          throw new Error("仅支持 MP4、MKV 文件。");
+        if (file.size === 0) throw new Error("文件为空。");
+        if (file.size > maxUploadSize)
+          throw new Error("文件超过上传上限：" + formatBytes(maxUploadSize));
+        controller.current = new AbortController();
+        setProgress(0);
+        await onSave(n, "", file, setProgress, controller.current.signal);
       } else {
+        const url = source.trim();
         const parsed = new URL(url);
         if (!["rtsp:", "rtsps:"].includes(parsed.protocol) || !parsed.hostname)
           throw new Error("请输入有效的 RTSP 或 RTSPS 地址。");
+        await onSave(n, url);
       }
-      await onSave(n, url);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      controller.current = null;
     }
   };
   return (
@@ -1070,57 +1162,109 @@ function AddSource({
           添加{kind === "file" ? "文件源" : " RTSP 源"}
         </DialogTitle>
         <DialogDescription className="mt-1 text-sm">
-          保存后自动接入，并可通过 RTSP 或 HTTP-FLV 调阅。
+          {kind === "file"
+            ? "上传视频后自动创建循环播放源，并可通过 RTSP 或 HTTP-FLV 调阅。"
+            : "保存后自动接入，并可通过 RTSP 或 HTTP-FLV 调阅。"}
         </DialogDescription>
         <form onSubmit={submit} className="mt-6 space-y-5">
           <Field
             label="流路径名称"
-            hint="名称唯一，可使用 / 分组，例如 camera/entrance。"
+            hint="名称唯一，可使用 / 分组，例如 files/demo。"
           >
             <Input
               required
+              disabled={busy}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={kind === "file" ? "files/demo" : "camera/entrance"}
               autoFocus
             />
           </Field>
-          <Field
-            label={kind === "file" ? "服务器文件路径" : "RTSP 源地址"}
-            hint={
-              kind === "file"
-                ? "文件须已存在于 MediaMTX 服务器；这里不上传浏览器本机文件。支持 H.264/H.265，音频会被忽略。"
-                : "支持 rtsp:// 和 rtsps://；源凭据仅用于服务端接入。"
-            }
-          >
-            <Input
-              required
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              placeholder={
-                kind === "file"
-                  ? "/data/videos/demo.mp4"
-                  : "rtsp://user:password@192.168.1.10:554/stream"
-              }
-              className="font-mono text-xs"
-            />
-          </Field>
+          {kind === "file" ? (
+            <>
+              <Field
+                label="视频文件"
+                hint="支持 MP4、MKV 中的 H.264/H.265 视频，音频会被忽略。"
+              >
+                <Input
+                  type="file"
+                  required
+                  disabled={busy}
+                  accept=".mp4,.mkv"
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  className="h-auto py-2 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-xs"
+                />
+              </Field>
+              <p className="break-all text-xs leading-6 text-muted-foreground">
+                保存目录：{uploadDirectory}
+                <br />
+                单文件上限：{formatBytes(maxUploadSize)}
+                {file && (
+                  <>
+                    <br />
+                    已选择：{file.name} · {formatBytes(file.size)}
+                  </>
+                )}
+              </p>
+            </>
+          ) : (
+            <Field
+              label="RTSP 源地址"
+              hint="支持 rtsp:// 和 rtsps://；源凭据仅用于服务端接入。"
+            >
+              <Input
+                required
+                disabled={busy}
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+                placeholder="rtsp://user:password@192.168.1.10:554/stream"
+                className="font-mono text-xs"
+              />
+            </Field>
+          )}
+          {busy && kind === "file" && (
+            <div role="status">
+              <div className="mb-2 flex justify-between text-xs text-muted-foreground">
+                <span>
+                  {progress < 100 ? "正在上传…" : "上传完成，正在校验并创建源…"}
+                </span>
+                <span>{progress}%</span>
+              </div>
+              <progress
+                className="h-2 w-full accent-blue-600"
+                max={100}
+                value={progress}
+                aria-label="上传进度"
+              />
+            </div>
+          )}
           {error && (
             <p role="alert" className="text-sm text-red-600">
               {error}
             </p>
           )}
           <div className="flex justify-end gap-2 border-t pt-5">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={onClose}
-            >
-              取消
-            </Button>
+            {busy && kind === "file" ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => controller.current?.abort()}
+              >
+                取消上传
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={onClose}
+              >
+                取消
+              </Button>
+            )}
             <Button type="submit" disabled={busy}>
-              {busy ? <Loader2 className="animate-spin" /> : <Plus />}添加并保存
+              {busy ? <Loader2 className="animate-spin" /> : <Plus />}
+              {kind === "file" ? "上传并创建" : "添加并保存"}
             </Button>
           </div>
         </form>
@@ -1128,6 +1272,7 @@ function AddSource({
     </Dialog>
   );
 }
+
 function Connection({
   open,
   onClose,
@@ -1437,6 +1582,104 @@ function GBSettings({
             </Button>
             <Button disabled={!canEdit}>
               {busy ? <Loader2 className="animate-spin" /> : <Check />}保存配置
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StorageSettings({
+  open,
+  config,
+  busy,
+  canEdit,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  config: GlobalConfig;
+  busy: boolean;
+  canEdit: boolean;
+  onClose: () => void;
+  onSave: (global: Record<string, unknown>) => Promise<void>;
+}) {
+  const [directory, setDirectory] = useState("");
+  const [maxSize, setMaxSize] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (open) {
+      setDirectory(config.apiFileUploadDirectory);
+      setMaxSize(config.apiFileUploadMaxSize);
+      setError("");
+    }
+  }, [open]);
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v && !busy) onClose();
+      }}
+    >
+      <DialogContent>
+        <DialogTitle className="text-lg font-semibold">上传设置</DialogTitle>
+        <DialogDescription className="mt-2 text-sm">
+          保存到配置文件，供后续上传使用。修改目录不会移动已有文件，删除旧文件源仍会清理原目录中的对应上传文件。
+        </DialogDescription>
+        <form
+          className="mt-5 space-y-5"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setError("");
+            try {
+              if (!directory.trim()) throw new Error("请输入上传目录。");
+              await onSave({
+                apiFileUploadDirectory: directory.trim(),
+                apiFileUploadMaxSize: maxSize.trim(),
+              });
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            }
+          }}
+        >
+          <Field
+            label="上传目录"
+            hint="相对路径以配置文件所在目录为基准；也可填写绝对路径。"
+          >
+            <Input
+              required
+              disabled={busy}
+              value={directory}
+              onChange={(e) => setDirectory(e.target.value)}
+              placeholder="./uploads"
+            />
+          </Field>
+          <Field label="单文件大小上限" hint="例如 500M 或 2G。">
+            <Input
+              required
+              disabled={busy}
+              value={maxSize}
+              onChange={(e) => setMaxSize(e.target.value)}
+              placeholder="2G"
+            />
+          </Field>
+          {error && (
+            <p role="alert" className="text-sm text-red-600">
+              {error}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={onClose}
+            >
+              取消
+            </Button>
+            <Button disabled={!canEdit}>
+              {busy ? <Loader2 className="animate-spin" /> : <Check />}保存设置
             </Button>
           </div>
         </form>

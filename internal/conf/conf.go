@@ -276,14 +276,16 @@ type Conf struct {
 	AuthJWTAudience           string                       `json:"authJWTAudience"`
 
 	// Control API
-	API               bool       `json:"api"`
-	APIAddress        string     `json:"apiAddress"`
-	APIEncryption     bool       `json:"apiEncryption"`
-	APIServerKey      string     `json:"apiServerKey"`
-	APIServerCert     string     `json:"apiServerCert"`
-	APIAllowOrigin    *string    `json:"apiAllowOrigin,omitempty" deprecated:"true"`
-	APIAllowOrigins   []string   `json:"apiAllowOrigins"`
-	APITrustedProxies IPNetworks `json:"apiTrustedProxies"`
+	API                    bool       `json:"api"`
+	APIAddress             string     `json:"apiAddress"`
+	APIEncryption          bool       `json:"apiEncryption"`
+	APIServerKey           string     `json:"apiServerKey"`
+	APIServerCert          string     `json:"apiServerCert"`
+	APIAllowOrigin         *string    `json:"apiAllowOrigin,omitempty" deprecated:"true"`
+	APIAllowOrigins        []string   `json:"apiAllowOrigins"`
+	APITrustedProxies      IPNetworks `json:"apiTrustedProxies"`
+	APIFileUploadDirectory string     `json:"apiFileUploadDirectory"`
+	APIFileUploadMaxSize   StringSize `json:"apiFileUploadMaxSize"`
 
 	// Metrics
 	Metrics               bool       `json:"metrics"`
@@ -475,6 +477,8 @@ func (conf *Conf) setDefaults() {
 
 	// Control API
 	conf.APIAddress = ":9997"
+	conf.APIFileUploadDirectory = "./uploads"
+	conf.APIFileUploadMaxSize = 2 * 1024 * 1024 * 1024
 	conf.APIServerKey = "server.key"
 	conf.APIServerCert = "server.crt"
 	conf.APIAllowOrigins = []string{}
@@ -801,6 +805,12 @@ func (conf *Conf) Validate(l logger.Writer) error {
 
 	// Control API
 
+	if conf.APIFileUploadDirectory == "" {
+		return fmt.Errorf("apiFileUploadDirectory must not be empty")
+	}
+	if conf.APIFileUploadMaxSize == 0 || uint64(conf.APIFileUploadMaxSize) > (1<<63)-1-(1<<20) {
+		return fmt.Errorf("invalid apiFileUploadMaxSize")
+	}
 	if conf.API {
 		if conf.APIAddress == "" {
 			return fmt.Errorf("'apiAddress' must be set when API is enabled")

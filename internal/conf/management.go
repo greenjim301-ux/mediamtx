@@ -7,4 +7,8 @@ type ManagementChange struct {
 	Name   string          `json:"name,omitempty"`
 	Path   *OptionalPath   `json:"path,omitempty"`
 	Global *OptionalGlobal `json:"global,omitempty"`
+	// Upload metadata is supplied internally, never accepted from JSON.
+	UploadDirectory    string `json:"-"`
+	UploadFileName     string `json:"-"`
+	UploadOriginalName string `json:"-"`
 }
