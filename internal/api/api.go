@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/bluenviron/mediamtx/internal/auth"
 	"github.com/bluenviron/mediamtx/internal/conf"
@@ -51,12 +52,13 @@ func paramName(ctx *gin.Context) (string, bool) {
 }
 
 type apiAuthManager interface {
-	Authenticate(req *auth.Request) (string, *auth.Error)
+	Authenticate(req *auth.Request) (*auth.Result, *auth.Error)
 	RefreshJWTJWKS()
 }
 
 type apiParent interface {
 	logger.Writer
+	OnFatalError(context.Context, error)
 	APIConfigSnapshot() *conf.Conf
 	APIConfigGlobalPatch(context.Context, conf.OptionalGlobal) error
 	APIConfigPathDefaultsPatch(context.Context, conf.OptionalPath) error
@@ -64,6 +66,11 @@ type apiParent interface {
 	APIConfigPathsPatch(context.Context, string, conf.OptionalPath) error
 	APIConfigPathsReplace(context.Context, string, conf.OptionalPath) error
 	APIConfigPathsDelete(context.Context, string) error
+	APIConfigInternalUsersSnapshot() ([]defs.APIInternalUser, error)
+	APIConfigInternalUsersAdd(context.Context, conf.AuthInternalUser) (uuid.UUID, error)
+	APIConfigInternalUsersPatch(context.Context, uuid.UUID, conf.OptionalAuthInternalUser) error
+	APIConfigInternalUsersReplace(context.Context, uuid.UUID, conf.AuthInternalUser) error
+	APIConfigInternalUsersDelete(context.Context, uuid.UUID) error
 }
 
 // API is an API server.
@@ -127,6 +134,13 @@ func (a *API) Initialize() error {
 	// deprecated
 	group.GET("/config/pathdefaults/get", a.onConfigPathDefaultsGet)
 	group.PATCH("/config/pathdefaults/patch", a.onConfigPathDefaultsPatch)
+
+	group.GET("/config/internal-users/list", a.onConfigInternalUsersList)
+	group.GET("/config/internal-users/get/:id", a.onConfigInternalUsersGet)
+	group.POST("/config/internal-users/add", a.onConfigInternalUsersAdd)
+	group.PATCH("/config/internal-users/patch/:id", a.onConfigInternalUsersPatch)
+	group.POST("/config/internal-users/replace/:id", a.onConfigInternalUsersReplace)
+	group.DELETE("/config/internal-users/delete/:id", a.onConfigInternalUsersDelete)
 
 	group.GET("/config/paths/list", a.onConfigPathsList)
 	group.GET("/config/paths/get/*name", a.onConfigPathsGet)
@@ -272,6 +286,7 @@ func (a *API) Initialize() error {
 		ServerKey:         a.ServerKey,
 		Handler:           router,
 		Parent:            a,
+		OnListenError:     a.onListenError,
 	}
 	err := a.httpServer.Initialize()
 	if err != nil {
@@ -299,6 +314,11 @@ func (a *API) Close() {
 	a.httpServer.Close()
 
 	a.Log(logger.Debug, "closed")
+}
+
+func (a *API) onListenError(ctx context.Context, err error) {
+	a.Log(logger.Error, "%s", err)
+	a.Parent.OnFatalError(ctx, err)
 }
 
 // Log implements logger.Writer.
@@ -353,10 +373,13 @@ func (a *API) middlewareAuth(ctx *gin.Context) {
 	if ctx.Request.Method == http.MethodGet && (ctx.Request.URL.Path == "/" || ctx.Request.URL.Path == "/admin" || strings.HasPrefix(ctx.Request.URL.Path, "/admin/")) {
 		return
 	}
+	creds := &auth.Credentials{}
+	creds.FromHTTP(ctx.Request)
+
 	req := &auth.Request{
 		Action:               conf.AuthActionAPI,
 		Query:                ctx.Request.URL.RawQuery,
-		Credentials:          httpp.Credentials(ctx.Request),
+		Credentials:          creds,
 		IP:                   net.ParseIP(ctx.ClientIP()),
 		EnableAskCredentials: true,
 	}

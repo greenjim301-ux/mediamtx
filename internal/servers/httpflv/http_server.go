@@ -57,6 +57,7 @@ func (s *httpServer) initialize() error {
 		ServerKey:         s.serverKey,
 		Handler:           router,
 		Parent:            s,
+		OnListenError:     s.parent.onListenError,
 	}
 	return s.inner.Initialize()
 }

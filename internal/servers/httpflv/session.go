@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -17,7 +18,6 @@ import (
 	"github.com/bluenviron/mediamtx/internal/hooks"
 	"github.com/bluenviron/mediamtx/internal/logger"
 	"github.com/bluenviron/mediamtx/internal/protocols/flv"
-	"github.com/bluenviron/mediamtx/internal/protocols/httpp"
 	"github.com/bluenviron/mediamtx/internal/stream"
 )
 
@@ -61,6 +61,8 @@ func (s *session) run(ctx *gin.Context) {
 
 func (s *session) runInner(ctx *gin.Context) error {
 	ip, _, _ := net.SplitHostPort(s.remoteAddr)
+	creds := &auth.Credentials{}
+	creds.FromHTTP(ctx.Request)
 
 	res, err := s.pathManager.AddReader(defs.PathAddReaderReq{
 		Author: s,
@@ -70,7 +72,7 @@ func (s *session) runInner(ctx *gin.Context) error {
 			UserAgent:            ctx.Request.UserAgent(),
 			Proto:                auth.ProtocolHTTPFLV,
 			ID:                   &s.uuid,
-			Credentials:          httpp.Credentials(ctx.Request),
+			Credentials:          creds,
 			IP:                   net.ParseIP(ip),
 			EnableAskCredentials: true,
 		},
@@ -128,7 +130,17 @@ func (s *session) runInner(ctx *gin.Context) error {
 	res.Stream.AddReader(r)
 	defer res.Stream.RemoveReader(r)
 
+	var authExpired <-chan time.Time
+	if res.AuthRes != nil && res.AuthRes.ExpiresAt != nil {
+		timer := time.NewTimer(time.Until(*res.AuthRes.ExpiresAt))
+		defer timer.Stop()
+		authExpired = timer.C
+	}
+
 	select {
+	case <-authExpired:
+		return fmt.Errorf("authentication expired")
+
 	case <-ctx.Request.Context().Done():
 		return fmt.Errorf("closed by client")
 

@@ -19,7 +19,7 @@ import (
 
 // APIManagementUploadSettings resolves relative storage paths against the config file.
 func (p *Core) APIManagementUploadSettings() (string, uint64, error) {
-	c := p.conf.Load()
+	c := p.apiConfigSnapshot()
 	dir := c.APIFileUploadDirectory
 	if !filepath.IsAbs(dir) {
 		base := "."
@@ -73,7 +73,7 @@ func (p *Core) APIManagementUpload(ctx context.Context, name, original string, r
 	if name == "all" || name == "all_others" || strings.HasPrefix(name, "~") {
 		return fmt.Errorf("a named source is required")
 	}
-	if _, ok := p.conf.Load().OptionalPaths[name]; ok {
+	if _, ok := p.apiConfigSnapshot().OptionalPaths[name]; ok {
 		return fmt.Errorf("path already exists")
 	}
 	original = filepath.Base(strings.ReplaceAll(original, "\\", "/"))
@@ -206,7 +206,7 @@ func (p *Core) stageUploadDeletion(name string, current *conf.Path) (*uploadDele
 		root.Close()
 		return nil, fmt.Errorf("managed upload must be a regular file, not a symlink")
 	}
-	for otherName, c := range p.conf.Load().Paths {
+	for otherName, c := range p.apiConfigSnapshot().Paths {
 		if otherName == name || !strings.HasPrefix(c.Source, "file://") {
 			continue
 		}

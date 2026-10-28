@@ -11,6 +11,7 @@ import (
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bluenviron/mediamtx/internal/auth"
 	"github.com/bluenviron/mediamtx/internal/conf"
 	"github.com/bluenviron/mediamtx/internal/defs"
 	"github.com/bluenviron/mediamtx/internal/externalcmd"
@@ -50,7 +51,7 @@ func TestServerNoOnePublishing(t *testing.T) {
 		WriteTimeout:    conf.Duration(10 * time.Second),
 		ExternalCmdPool: &externalcmd.Pool{},
 		PathManager:     pathManager,
-		Parent:          test.NilLogger,
+		Parent:          &test.ServerParent{},
 	}
 	err := s.Initialize()
 	require.NoError(t, err)
@@ -63,71 +64,88 @@ func TestServerNoOnePublishing(t *testing.T) {
 }
 
 func TestServerRead(t *testing.T) {
-	medias := []*description.Media{{
-		Formats: []format.Format{test.FormatH264},
-	}}
+	for _, expired := range []bool{false, true} {
+		t.Run(map[bool]string{false: "no_expiration", true: "auth_expiration"}[expired], func(t *testing.T) {
+			medias := []*description.Media{{
+				Formats: []format.Format{test.FormatH264},
+			}}
 
-	strm := &stream.Stream{
-		OrigDesc:          &description.Session{Medias: medias},
-		WriteQueueSize:    512,
-		RTPMaxPayloadSize: 1450,
-		Parent:            test.NilLogger,
+			strm := &stream.Stream{
+				OrigDesc:          &description.Session{Medias: medias},
+				WriteQueueSize:    512,
+				RTPMaxPayloadSize: 1450,
+				Parent:            test.NilLogger,
+			}
+			err := strm.Initialize()
+			require.NoError(t, err)
+
+			subStream := &stream.SubStream{Stream: strm}
+			err = subStream.Initialize()
+			require.NoError(t, err)
+
+			pa := &dummyPath{}
+
+			pathManager := &dummyPathManager{
+				addReaderImpl: func(req defs.PathAddReaderReq) (*defs.PathAddReaderRes, error) {
+					require.NotNil(t, req.AccessRequest.Credentials)
+					res := &defs.PathAddReaderRes{Path: pa, Stream: strm, AuthRes: &auth.Result{}}
+					if expired {
+						expiresAt := time.Now().Add(500 * time.Millisecond)
+						res.AuthRes.ExpiresAt = &expiresAt
+					}
+					return res, nil
+				},
+			}
+
+			s := &Server{
+				Address:         "127.0.0.1:9602",
+				Encryption:      false,
+				AllowOrigins:    []string{"*"},
+				ReadTimeout:     conf.Duration(10 * time.Second),
+				WriteTimeout:    conf.Duration(10 * time.Second),
+				ExternalCmdPool: &externalcmd.Pool{},
+				PathManager:     pathManager,
+				Parent:          &test.ServerParent{},
+			}
+			err = s.Initialize()
+			require.NoError(t, err)
+			defer s.Close()
+
+			client := &http.Client{Timeout: 5 * time.Second}
+			res, err := client.Get("http://127.0.0.1:9602/teststream.flv")
+			require.NoError(t, err)
+			defer res.Body.Close()
+			require.Equal(t, http.StatusOK, res.StatusCode)
+			require.Equal(t, "video/x-flv", res.Header.Get("Content-Type"))
+
+			br := bufio.NewReader(res.Body)
+
+			header := make([]byte, 13)
+			_, err = io.ReadFull(br, header)
+			require.NoError(t, err)
+			require.Equal(t, []byte("FLV"), header[:3])
+
+			// a non-IDR frame before any IDR must not produce a tag
+			subStream.WriteUnit(medias[0], medias[0].Formats[0], &unit.Unit{
+				PTS:     0,
+				Payload: unit.PayloadH264{{0x61, 0x00}},
+			})
+
+			subStream.WriteUnit(medias[0], medias[0].Formats[0], &unit.Unit{
+				PTS:     90000,
+				Payload: unit.PayloadH264{{0x65, 0x00}},
+			})
+
+			tagHeader := make([]byte, 11)
+			_, err = io.ReadFull(br, tagHeader)
+			require.NoError(t, err)
+			require.Equal(t, byte(9), tagHeader[0]) // video tag
+
+			if expired {
+				_, err = io.ReadAll(br)
+				require.NoError(t, err)
+			}
+
+		})
 	}
-	err := strm.Initialize()
-	require.NoError(t, err)
-
-	subStream := &stream.SubStream{Stream: strm}
-	err = subStream.Initialize()
-	require.NoError(t, err)
-
-	pa := &dummyPath{}
-
-	pathManager := &dummyPathManager{
-		addReaderImpl: func(_ defs.PathAddReaderReq) (*defs.PathAddReaderRes, error) {
-			return &defs.PathAddReaderRes{Path: pa, Stream: strm}, nil
-		},
-	}
-
-	s := &Server{
-		Address:         "127.0.0.1:9602",
-		Encryption:      false,
-		AllowOrigins:    []string{"*"},
-		ReadTimeout:     conf.Duration(10 * time.Second),
-		WriteTimeout:    conf.Duration(10 * time.Second),
-		ExternalCmdPool: &externalcmd.Pool{},
-		PathManager:     pathManager,
-		Parent:          test.NilLogger,
-	}
-	err = s.Initialize()
-	require.NoError(t, err)
-	defer s.Close()
-
-	res, err := http.Get("http://127.0.0.1:9602/teststream.flv")
-	require.NoError(t, err)
-	defer res.Body.Close()
-	require.Equal(t, http.StatusOK, res.StatusCode)
-	require.Equal(t, "video/x-flv", res.Header.Get("Content-Type"))
-
-	br := bufio.NewReader(res.Body)
-
-	header := make([]byte, 13)
-	_, err = io.ReadFull(br, header)
-	require.NoError(t, err)
-	require.Equal(t, []byte("FLV"), header[:3])
-
-	// a non-IDR frame before any IDR must not produce a tag
-	subStream.WriteUnit(medias[0], medias[0].Formats[0], &unit.Unit{
-		PTS:     0,
-		Payload: unit.PayloadH264{{0x61, 0x00}},
-	})
-
-	subStream.WriteUnit(medias[0], medias[0].Formats[0], &unit.Unit{
-		PTS:     90000,
-		Payload: unit.PayloadH264{{0x65, 0x00}},
-	})
-
-	tagHeader := make([]byte, 11)
-	_, err = io.ReadFull(br, tagHeader)
-	require.NoError(t, err)
-	require.Equal(t, byte(9), tagHeader[0]) // video tag
 }

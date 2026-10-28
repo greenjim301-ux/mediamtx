@@ -17,6 +17,7 @@ type serverPathManager interface {
 
 type serverParent interface {
 	logger.Writer
+	OnFatalError(context.Context, error)
 }
 
 // Server is a HTTP-FLV server.
@@ -89,4 +90,9 @@ func (s *Server) Close() {
 // ServeHTTP exposes the authenticated FLV handler for same-origin API previews.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.httpServer.router.ServeHTTP(w, r)
+}
+
+func (s *Server) onListenError(ctx context.Context, err error) {
+	s.Log(logger.Error, "%s", err)
+	s.Parent.OnFatalError(ctx, err)
 }

@@ -118,7 +118,7 @@ func (p *Core) doManagement(change conf.ManagementChange) (*conf.Conf, error) {
 				return nil, fmt.Errorf("video source must be a regular file")
 			}
 		}
-		if _, exists := p.conf.Load().OptionalPaths[change.Name]; exists {
+		if _, exists := p.conf.OptionalPaths[change.Name]; exists {
 			return nil, fmt.Errorf("path already exists")
 		}
 		paths, ok := doc["paths"].(map[string]any)
@@ -141,7 +141,7 @@ func (p *Core) doManagement(change conf.ManagementChange) (*conf.Conf, error) {
 		if _, exists := paths[change.Name]; !exists {
 			return nil, fmt.Errorf("path not found in configuration file")
 		}
-		current, exists := p.conf.Load().Paths[change.Name]
+		current, exists := p.conf.Paths[change.Name]
 		if !exists || (!strings.HasPrefix(current.Source, "rtsp://") && !strings.HasPrefix(current.Source, "rtsps://") && !strings.HasPrefix(current.Source, "file://") && !strings.HasPrefix(current.Source, "gb28181://")) {
 			return nil, fmt.Errorf("only configured RTSP, file or GB28181 sources can be deleted")
 		}
@@ -196,8 +196,11 @@ func (p *Core) doManagement(change conf.ManagementChange) (*conf.Conf, error) {
 	}
 	if change.Action == "global" {
 		check := next.Clone()
-		check.GB28181 = true
-		if err := check.Validate(nil); err != nil {
+		var patch conf.OptionalGlobal
+		if err := json.Unmarshal([]byte(`{"gb28181":true}`), &patch); err != nil {
+			return nil, err
+		}
+		if err := check.PatchGlobal(&patch); err != nil {
 			return nil, err
 		}
 	}

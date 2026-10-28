@@ -330,7 +330,7 @@ func (s *Handler) run() {
 		case <-s.ctx.Done():
 			if !recreating {
 				runCtxCancel()
-				<-runErr
+				<-runErr //nolint:errcheck
 			}
 			return
 		}
