@@ -205,7 +205,8 @@ export default function App() {
     setPreviewPTZTitle(hasPTZ ? "ONVIF 云台控制" : "");
     setPreviewPTZHandler(
       hasPTZ
-        ? (cmd, speed) => onvifPTZ(conf.name, { command: cmd, speed })
+        ? () => (cmd: PTZCommand, speed: number) =>
+            onvifPTZ(conf.name, { command: cmd, speed })
         : null,
     );
   };
@@ -343,16 +344,14 @@ export default function App() {
       const ptzInfo = checkGBPTZ(c);
       setPreviewHasPTZ(ptzInfo.supported);
       setPreviewPTZTitle(
-        ptzInfo.supported ? `国标云台控制 (${ptzInfo.label})` : "",
+        ptzInfo.supported ? `国标云台控制 (${ptzInfo.label})` : "国标云台控制",
       );
       setPreviewPTZHandler(
-        ptzInfo.supported
-          ? (cmd, speed) =>
-              gb28181PTZ(c.id, {
-                command: cmd,
-                speed: Math.round(speed * 255),
-              })
-          : null,
+        () => (cmd: PTZCommand, speed: number) =>
+          gb28181PTZ(c.id, {
+            command: cmd,
+            speed: Math.round(speed * 255),
+          }),
       );
     } catch {
       /* error shown above */

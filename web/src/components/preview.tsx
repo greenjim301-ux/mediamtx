@@ -69,6 +69,10 @@ export function Preview({
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const [showPTZ, setShowPTZ] = useState(hasPTZ);
+  useEffect(() => {
+    setShowPTZ(hasPTZ);
+  }, [hasPTZ]);
 
   // PTZ states
   const [speed, setSpeed] = useState(0.5);
@@ -206,11 +210,22 @@ export function Preview({
         }
       }}
     >
-      <DialogContent className={hasPTZ ? "max-w-5xl" : "max-w-4xl"}>
+      <DialogContent className={showPTZ ? "max-w-5xl" : "max-w-4xl"}>
         <div className="flex items-center justify-between pr-6">
           <div>
-            <DialogTitle className="text-lg font-semibold">
-              实时预览 {hasPTZ && <span className="text-sm font-normal text-blue-600">· {ptzTitle || "支持 PTZ"}</span>}
+            <DialogTitle className="text-lg font-semibold flex items-center gap-2">
+              <span>实时预览</span>
+              {showPTZ ? (
+                <span className="text-sm font-normal text-blue-600">· {ptzTitle || "支持 PTZ"}</span>
+              ) : onPTZ ? (
+                <button
+                  type="button"
+                  onClick={() => setShowPTZ(true)}
+                  className="text-xs font-normal text-slate-500 hover:text-blue-600 underline"
+                >
+                  (开启云台控制)
+                </button>
+              ) : null}
             </DialogTitle>
             <DialogDescription className="mt-1 font-mono text-xs">
               {path} · HTTP-FLV
@@ -218,9 +233,9 @@ export function Preview({
           </div>
         </div>
 
-        <div className={`mt-4 grid gap-5 ${hasPTZ ? "lg:grid-cols-3" : "grid-cols-1"}`}>
+        <div className={`mt-4 grid gap-5 ${showPTZ ? "lg:grid-cols-3" : "grid-cols-1"}`}>
           {/* Video Player */}
-          <div className={hasPTZ ? "lg:col-span-2" : "col-span-1"}>
+          <div className={showPTZ ? "lg:col-span-2" : "col-span-1"}>
             <div className="relative overflow-hidden rounded-xl bg-slate-950">
               <video
                 ref={video}
@@ -262,7 +277,7 @@ export function Preview({
           </div>
 
           {/* PTZ Controller (if supported) */}
-          {hasPTZ && (
+          {showPTZ && (
             <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50/70 p-4">
               <div>
                 <div className="flex items-center justify-between border-b pb-2">
