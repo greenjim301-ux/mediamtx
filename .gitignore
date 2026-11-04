@@ -13,5 +13,7 @@
 
 /web/node_modules/
 /web/*.tsbuildinfo
+/internal/api/webdist/*
+!/internal/api/webdist/.gitkeep
 
 /uploads/
