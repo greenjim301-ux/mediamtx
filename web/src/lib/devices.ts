@@ -41,3 +41,44 @@ export function channelPreviewAction(
   if (channel.pathConflict) return "conflict";
   return channel.pathConfigured ? "preview" : "add";
 }
+
+export type GBPTZInfo = {
+  supported: boolean;
+  label: string;
+  reason: string;
+};
+
+export function checkGBPTZ(c: Channel): GBPTZInfo {
+  // 1. PTZType from Catalog (GB/T 28181 Table A.3)
+  if (c.ptzType === 1) {
+    return { supported: true, label: "球机 (PTZ)", reason: "目录上报 PTZType=1 (球机)" };
+  }
+  if (c.ptzType === 2) {
+    return { supported: true, label: "半球 (PTZ)", reason: "目录上报 PTZType=2 (半球)" };
+  }
+  if (c.ptzType === 4) {
+    return { supported: true, label: "遥控枪机", reason: "目录上报 PTZType=4 (遥控枪机)" };
+  }
+  if (c.ptzType === 3) {
+    return { supported: false, label: "固定枪机", reason: "目录上报 PTZType=3 (固定枪机)" };
+  }
+
+  // 2. 20-digit GB code 11~13th digits: 132 = 遥控/云台摄像机; 131 = 普通/固定摄像机
+  if (/^\d{20}$/.test(c.id)) {
+    const code = c.id.slice(10, 13);
+    if (code === "132") {
+      return { supported: true, label: "球机 (PTZ)", reason: "国标编码 132 (遥控/云台摄像机)" };
+    }
+    if (code === "131") {
+      return { supported: false, label: "枪机", reason: "国标编码 131 (固定摄像机)" };
+    }
+  }
+
+  // 3. Name or Model keyword matching
+  const text = (c.name + " " + c.model).toLowerCase();
+  if (/(球机|云台|ptz|高速球|智能球|转台)/i.test(text)) {
+    return { supported: true, label: "云台摄像机", reason: "名称/型号含云台关键字" };
+  }
+
+  return { supported: false, label: "普通摄像机", reason: "未声明云台属性" };
+}

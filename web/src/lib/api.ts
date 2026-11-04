@@ -32,6 +32,7 @@ export type Channel = {
   address: string;
   parentId: string;
   online: boolean;
+  ptzType?: number;
   path: string;
 };
 export type Device = {
@@ -271,4 +272,17 @@ export async function onvifPTZ(
       body: JSON.stringify(params),
     },
   );
+}
+
+export async function gb28181PTZ(
+  id: string,
+  params: {
+    command: "up" | "down" | "left" | "right" | "zoomin" | "zoomout" | "stop";
+    speed?: number;
+  },
+): Promise<void> {
+  return request(`/gb28181/channels/ptz/${encodeURIComponent(id)}`, {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
 }

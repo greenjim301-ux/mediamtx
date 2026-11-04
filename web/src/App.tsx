@@ -43,12 +43,14 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Preview } from "@/components/preview";
+import { Preview, type PTZCommand } from "@/components/preview";
 import {
   apply,
   uploadFile,
   formatBytes,
+  gb28181PTZ,
   hideCredentials,
+  onvifPTZ,
   onvifProbe,
   request,
   setAuthorization,
@@ -62,6 +64,7 @@ import {
 import {
   classify,
   classifyChannel,
+  checkGBPTZ,
   kindLabels,
   channelPreviewAction,
 } from "@/lib/devices";
@@ -186,6 +189,10 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [previewHasPTZ, setPreviewHasPTZ] = useState(false);
+  const [previewPTZTitle, setPreviewPTZTitle] = useState("");
+  const [previewPTZHandler, setPreviewPTZHandler] = useState<
+    ((cmd: PTZCommand, speed: number) => Promise<void>) | null
+  >(null);
   const [connection, setConnection] = useState(false);
   const [gbSettings, setGBSettings] = useState(false);
   const [storageSettings, setStorageSettings] = useState(false);
@@ -193,7 +200,14 @@ export default function App() {
   const [selectedDevice, setSelectedDevice] = useState("");
   const openPreview = (conf: PathConf) => {
     setPreview(conf.name);
-    setPreviewHasPTZ(!!conf.onvifPTZURL && !!conf.onvifProfileToken);
+    const hasPTZ = !!conf.onvifPTZURL && !!conf.onvifProfileToken;
+    setPreviewHasPTZ(hasPTZ);
+    setPreviewPTZTitle(hasPTZ ? "ONVIF 云台控制" : "");
+    setPreviewPTZHandler(
+      hasPTZ
+        ? (cmd, speed) => onvifPTZ(conf.name, { command: cmd, speed })
+        : null,
+    );
   };
   const refresh = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
@@ -326,7 +340,20 @@ export default function App() {
           "通道已接入并保存。",
         );
       setPreview(c.path);
-      setPreviewHasPTZ(false);
+      const ptzInfo = checkGBPTZ(c);
+      setPreviewHasPTZ(ptzInfo.supported);
+      setPreviewPTZTitle(
+        ptzInfo.supported ? `国标云台控制 (${ptzInfo.label})` : "",
+      );
+      setPreviewPTZHandler(
+        ptzInfo.supported
+          ? (cmd, speed) =>
+              gb28181PTZ(c.id, {
+                command: cmd,
+                speed: Math.round(speed * 255),
+              })
+          : null,
+      );
     } catch {
       /* error shown above */
     }
@@ -767,15 +794,29 @@ export default function App() {
                               </div>
                             </td>
                             <td>
-                              <span
-                                title={info.evidence}
-                                className={
-                                  "type-pill " +
-                                  (info.kind === "camera" ? "type-blue" : "")
-                                }
-                              >
-                                {kindLabels[info.kind]}
-                              </span>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span
+                                  title={info.evidence}
+                                  className={
+                                    "type-pill " +
+                                    (info.kind === "camera" ? "type-blue" : "")
+                                  }
+                                >
+                                  {kindLabels[info.kind]}
+                                </span>
+                                {(() => {
+                                  const ptz = checkGBPTZ(c);
+                                  if (!ptz.supported) return null;
+                                  return (
+                                    <span
+                                      title={ptz.reason}
+                                      className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                    >
+                                      PTZ: {ptz.label}
+                                    </span>
+                                  );
+                                })()}
+                              </div>
                             </td>
                             <td>
                               <div className="text-xs">
@@ -1164,9 +1205,13 @@ export default function App() {
       <Preview
         path={preview}
         hasPTZ={previewHasPTZ}
+        ptzTitle={previewPTZTitle}
+        onPTZ={previewPTZHandler || undefined}
         onClose={() => {
           setPreview(null);
           setPreviewHasPTZ(false);
+          setPreviewPTZTitle("");
+          setPreviewPTZHandler(null);
         }}
       />
     </div>

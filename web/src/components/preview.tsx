@@ -41,13 +41,26 @@ declare global {
   }
 }
 
+export type PTZCommand =
+  | "up"
+  | "down"
+  | "left"
+  | "right"
+  | "zoomin"
+  | "zoomout"
+  | "stop";
+
 export function Preview({
   path,
   hasPTZ = false,
+  ptzTitle = "支持 PTZ 云台",
+  onPTZ,
   onClose,
 }: {
   path: string | null;
   hasPTZ?: boolean;
+  ptzTitle?: string;
+  onPTZ?: (cmd: PTZCommand, speed: number) => Promise<void>;
   onClose: () => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
@@ -64,16 +77,18 @@ export function Preview({
   const activeCmdRef = useRef<string | null>(null);
 
   const sendPTZ = useCallback(
-    async (
-      cmd: "up" | "down" | "left" | "right" | "zoomin" | "zoomout" | "stop",
-    ) => {
+    async (cmd: PTZCommand) => {
       if (!path) return;
       setPtzError("");
       try {
         if (cmd === "stop") {
           activeCmdRef.current = null;
           setPtzStatus("");
-          await onvifPTZ(path, { command: "stop" });
+          if (onPTZ) {
+            await onPTZ("stop", speed);
+          } else {
+            await onvifPTZ(path, { command: "stop" });
+          }
         } else {
           activeCmdRef.current = cmd;
           const labels: Record<string, string> = {
@@ -85,13 +100,17 @@ export function Preview({
             zoomout: "变焦缩小",
           };
           setPtzStatus(labels[cmd] || cmd);
-          await onvifPTZ(path, { command: cmd, speed });
+          if (onPTZ) {
+            await onPTZ(cmd, speed);
+          } else {
+            await onvifPTZ(path, { command: cmd, speed });
+          }
         }
       } catch (e) {
         setPtzError(e instanceof Error ? e.message : String(e));
       }
     },
-    [path, speed],
+    [path, speed, onPTZ],
   );
 
   const handleMouseDown = (
@@ -191,7 +210,7 @@ export function Preview({
         <div className="flex items-center justify-between pr-6">
           <div>
             <DialogTitle className="text-lg font-semibold">
-              实时预览 {hasPTZ && <span className="text-sm font-normal text-blue-600">· 支持 ONVIF PTZ</span>}
+              实时预览 {hasPTZ && <span className="text-sm font-normal text-blue-600">· {ptzTitle || "支持 PTZ"}</span>}
             </DialogTitle>
             <DialogDescription className="mt-1 font-mono text-xs">
               {path} · HTTP-FLV
