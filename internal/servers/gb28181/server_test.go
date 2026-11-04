@@ -179,6 +179,30 @@ func (d *fakeDevice) sendCatalog(inviteCSeq int) {
 	require.True(d.t, strings.HasPrefix(res, "SIP/2.0 200"), "unexpected response: %s", res)
 }
 
+func (d *fakeDevice) sendKeepalive(cseq int) {
+	_, port, _ := net.SplitHostPort(d.localAddr())
+
+	body := `<?xml version="1.0" encoding="GB2312"?>
+<Notify>
+<CmdType>Keepalive</CmdType>
+<SN>1</SN>
+<DeviceID>` + testDeviceID + `</DeviceID>
+<Status>OK</Status>
+</Notify>
+`
+
+	d.write("MESSAGE sip:" + testServerID + "@" + testRealm + " SIP/2.0\r\n" +
+		"Via: SIP/2.0/UDP 127.0.0.1:" + port + ";rport;branch=z9hG4bKkeep" + strconv.Itoa(cseq) + "\r\n" +
+		"From: <sip:" + testDeviceID + "@" + testRealm + ">;tag=keepalivetag\r\n" +
+		"To: <sip:" + testServerID + "@" + testRealm + ">\r\n" +
+		"Call-ID: keepalive-call-id-" + strconv.Itoa(cseq) + "\r\n" +
+		"CSeq: " + strconv.Itoa(cseq) + " MESSAGE\r\n" +
+		"Max-Forwards: 70\r\n" +
+		"Content-Type: Application/MANSCDP+xml\r\n" +
+		"Content-Length: " + strconv.Itoa(len(body)) + "\r\n\r\n" +
+		body)
+}
+
 func testServer(t *testing.T) *Server {
 	s := &Server{
 		Address:         testServerAddr,
@@ -241,6 +265,43 @@ func TestServerRegisterAndCatalog(t *testing.T) {
 	require.Equal(t, "Test Camera", channels.Items[0].Name)
 	require.Equal(t, "gb28181/"+testChannelID, channels.Items[0].Path)
 	require.True(t, channels.Items[0].Online)
+}
+
+func TestServerKeepaliveUnregistered(t *testing.T) {
+	s := testServer(t)
+	defer s.Close()
+
+	dev := newFakeDevice(t)
+	defer dev.close()
+
+	// send keepalive without registering first
+	dev.sendKeepalive(1)
+
+	res, err := dev.readMessage(3 * time.Second)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(res, "SIP/2.0 404"), "expected 404 Not Found, got: %s", res)
+}
+
+func TestServerKeepaliveRegistered(t *testing.T) {
+	s := testServer(t)
+	defer s.Close()
+
+	dev := newFakeDevice(t)
+	defer dev.close()
+
+	dev.register()
+
+	for range 2 {
+		req, err := dev.readMessage(3 * time.Second)
+		require.NoError(t, err)
+		dev.replyOK(req, "")
+	}
+
+	dev.sendKeepalive(3)
+
+	res, err := dev.readMessage(3 * time.Second)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(res, "SIP/2.0 200"), "expected 200 OK, got: %s", res)
 }
 
 func TestServerPTZ(t *testing.T) {

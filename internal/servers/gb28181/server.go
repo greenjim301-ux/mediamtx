@@ -467,17 +467,16 @@ func (s *Server) checkAuth(req *sip.Request, tx sip.ServerTransaction, deviceID 
 
 // onMessage handles MESSAGE and NOTIFY requests, that carry MANSCDP messages.
 func (s *Server) onMessage(req *sip.Request, tx sip.ServerTransaction) {
-	// devices expect a reply as soon as possible.
-	s.respond(tx, req, sip.StatusOK, "OK")
-
 	body := req.Body()
 	if len(body) == 0 {
+		s.respond(tx, req, sip.StatusBadRequest, "Bad Request")
 		return
 	}
 
 	msg, err := gb28181.DecodeMessage(body)
 	if err != nil {
 		s.Log(logger.Debug, "unable to decode message: %v", err)
+		s.respond(tx, req, sip.StatusBadRequest, "Bad Request")
 		return
 	}
 
@@ -487,6 +486,7 @@ func (s *Server) onMessage(req *sip.Request, tx sip.ServerTransaction) {
 	}
 
 	if deviceID == "" {
+		s.respond(tx, req, sip.StatusBadRequest, "Bad Request")
 		return
 	}
 
@@ -494,16 +494,21 @@ func (s *Server) onMessage(req *sip.Request, tx sip.ServerTransaction) {
 	case gb28181.CmdTypeKeepalive:
 		dev, err2 := s.findDevice(deviceID)
 		if err2 != nil {
+			s.Log(logger.Warn, "device '%s': received keepalive from unregistered device", deviceID)
+			s.respond(tx, req, sip.StatusNotFound, "Not Found")
 			return
 		}
+		s.respond(tx, req, sip.StatusOK, "OK")
 		dev.setKeepalive()
 
 	case gb28181.CmdTypeCatalog:
 		dev, err2 := s.findDevice(deviceID)
 		if err2 != nil {
+			s.respond(tx, req, sip.StatusNotFound, "Not Found")
 			return
 		}
 
+		s.respond(tx, req, sip.StatusOK, "OK")
 		dev.setChannels(msg.DeviceList.Items)
 
 		s.Log(logger.Info, "device '%s': received %d channels", deviceID, len(msg.DeviceList.Items))
@@ -511,12 +516,15 @@ func (s *Server) onMessage(req *sip.Request, tx sip.ServerTransaction) {
 	case gb28181.CmdTypeDeviceInfo:
 		dev, err2 := s.findDevice(deviceID)
 		if err2 != nil {
+			s.respond(tx, req, sip.StatusNotFound, "Not Found")
 			return
 		}
+		s.respond(tx, req, sip.StatusOK, "OK")
 		dev.setInfo(msg)
 
 	default:
 		s.Log(logger.Debug, "device '%s': received message '%s'", deviceID, msg.CmdType)
+		s.respond(tx, req, sip.StatusOK, "OK")
 	}
 }
 
