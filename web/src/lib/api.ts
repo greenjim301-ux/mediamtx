@@ -1,6 +1,11 @@
 export type PathConf = {
   fileUploadDirectory?: string;
   fileUploadOriginalName?: string;
+  onvifDeviceIP?: string;
+  onvifUser?: string;
+  onvifPass?: string;
+  onvifProfileToken?: string;
+  onvifPTZURL?: string;
   name: string;
   source: string;
   sourceOnDemand: boolean;
@@ -230,4 +235,40 @@ export function formatBytes(bytes: number) {
     i++;
   }
   return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
+}
+
+export type ONVIFProbeResult = {
+  deviceServiceUrl: string;
+  mediaUrl: string;
+  ptzUrl: string;
+  profileToken: string;
+  rtspUrl: string;
+  hasPtz: boolean;
+};
+
+export async function onvifProbe(params: {
+  ip: string;
+  user: string;
+  pass: string;
+}): Promise<ONVIFProbeResult> {
+  return request<ONVIFProbeResult>("/onvif/probe", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function onvifPTZ(
+  name: string,
+  params: {
+    command: "up" | "down" | "left" | "right" | "zoomin" | "zoomout" | "stop";
+    speed?: number;
+  },
+): Promise<void> {
+  return request(
+    "/onvif/ptz/" + name.split("/").map(encodeURIComponent).join("/"),
+    {
+      method: "POST",
+      body: JSON.stringify(params),
+    },
+  );
 }

@@ -223,6 +223,11 @@ type Path struct {
 	Source                     string   `json:"source"`
 	FileUploadDirectory        string   `json:"fileUploadDirectory"`
 	FileUploadOriginalName     string   `json:"fileUploadOriginalName"`
+	ONVIFDeviceIP              string   `json:"onvifDeviceIP"`
+	ONVIFUser                  string   `json:"onvifUser"`
+	ONVIFPass                  string   `json:"onvifPass"`
+	ONVIFProfileToken          string   `json:"onvifProfileToken"`
+	ONVIFPTZURL                string   `json:"onvifPTZURL"`
 	SourceFingerprint          string   `json:"sourceFingerprint"`
 	SourceOnDemand             bool     `json:"sourceOnDemand"`
 	SourceOnDemandStartTimeout Duration `json:"sourceOnDemandStartTimeout"`

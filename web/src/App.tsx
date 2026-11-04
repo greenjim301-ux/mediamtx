@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   Activity,
+  AlertCircle,
   ArrowUpRight,
   Camera,
   Check,
@@ -48,11 +49,13 @@ import {
   uploadFile,
   formatBytes,
   hideCredentials,
+  onvifProbe,
   request,
   setAuthorization,
   snapshot,
   type Channel,
   type GlobalConfig,
+  type ONVIFProbeResult,
   type PathConf,
   type Snapshot,
 } from "@/lib/api";
@@ -63,12 +66,17 @@ import {
   channelPreviewAction,
 } from "@/lib/devices";
 
-type Page = "rtsp" | "file" | "gb";
+type Page = "rtsp" | "onvif" | "file" | "gb";
 const pages = {
   rtsp: {
     title: "RTSP 源",
     description: "接入摄像头或其他服务的 RTSP 视频流，统一调阅与预览。",
     icon: Radio,
+  },
+  onvif: {
+    title: "ONVIF 源",
+    description: "发现并接入局域网内 ONVIF 监控摄像头，支持视频调阅与 PTZ 云台控制。",
+    icon: Camera,
   },
   file: {
     title: "文件源",
@@ -83,7 +91,7 @@ const pages = {
 };
 function initialPage(): Page {
   const p = location.hash.slice(1);
-  return p === "file" || p === "gb" ? p : "rtsp";
+  return p === "file" || p === "gb" || p === "onvif" ? p : "rtsp";
 }
 function Field({
   label,
@@ -173,14 +181,20 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [addingOnvif, setAddingOnvif] = useState(false);
   const [deleting, setDeleting] = useState<PathConf | null>(null);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [previewHasPTZ, setPreviewHasPTZ] = useState(false);
   const [connection, setConnection] = useState(false);
   const [gbSettings, setGBSettings] = useState(false);
   const [storageSettings, setStorageSettings] = useState(false);
   const [cameraOnly, setCameraOnly] = useState(true);
   const [selectedDevice, setSelectedDevice] = useState("");
+  const openPreview = (conf: PathConf) => {
+    setPreview(conf.name);
+    setPreviewHasPTZ(!!conf.onvifPTZURL && !!conf.onvifProfileToken);
+  };
   const refresh = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     try {
@@ -247,13 +261,15 @@ export default function App() {
       data?.configs
         .filter((c) =>
           page === "rtsp"
-            ? /^rtsps?:\/\//.test(c.source)
-            : page === "file"
-              ? c.source.startsWith("file://")
-              : false,
+            ? /^rtsps?:\/\//.test(c.source) && !c.onvifDeviceIP
+            : page === "onvif"
+              ? !!c.onvifDeviceIP
+              : page === "file"
+                ? c.source.startsWith("file://")
+                : false,
         )
         .filter((c) =>
-          (c.name + " " + hideCredentials(c.source))
+          (c.name + " " + hideCredentials(c.source) + " " + (c.onvifDeviceIP || ""))
             .toLowerCase()
             .includes(query.toLowerCase()),
         ) || [],
@@ -261,12 +277,17 @@ export default function App() {
   );
   const allSources =
     data?.configs.filter(
-      (c) => /^rtsps?:\/\//.test(c.source) || c.source.startsWith("file://"),
+      (c) =>
+        /^rtsps?:\/\//.test(c.source) ||
+        c.source.startsWith("file://") ||
+        !!c.onvifDeviceIP,
     ) || [];
   const currentSources = allSources.filter((c) =>
     page === "rtsp"
-      ? /^rtsps?:\/\//.test(c.source)
-      : c.source.startsWith("file://"),
+      ? /^rtsps?:\/\//.test(c.source) && !c.onvifDeviceIP
+      : page === "onvif"
+        ? !!c.onvifDeviceIP
+        : c.source.startsWith("file://"),
   );
   const runtime = (name: string) => data?.paths.find((p) => p.name === name);
   const cameras =
@@ -305,6 +326,7 @@ export default function App() {
           "通道已接入并保存。",
         );
       setPreview(c.path);
+      setPreviewHasPTZ(false);
     } catch {
       /* error shown above */
     }
@@ -410,6 +432,11 @@ export default function App() {
               >
                 <Settings2 />
                 国标服务配置
+              </Button>
+            ) : page === "onvif" ? (
+              <Button disabled={!canEdit} onClick={() => setAddingOnvif(true)}>
+                <Plus />
+                添加 ONVIF 设备
               </Button>
             ) : (
               <Button disabled={!canEdit} onClick={() => setAdding(true)}>
@@ -818,8 +845,15 @@ export default function App() {
                   <thead>
                     <tr>
                       <th>名称 / 流路径</th>
-                      <th>{page === "rtsp" ? "源地址" : "视频文件"}</th>
+                      <th>
+                        {page === "onvif"
+                          ? "设备 IP / 来源"
+                          : page === "rtsp"
+                            ? "源地址"
+                            : "视频文件"}
+                      </th>
                       <th>状态</th>
+                      {page === "onvif" && <th>云台能力</th>}
                       <th>调阅连接</th>
                       <th className="text-right">操作</th>
                     </tr>
@@ -846,15 +880,23 @@ export default function App() {
                               title={hideCredentials(c.source)}
                             >
                               {c.fileUploadOriginalName ||
-                                hideCredentials(c.source)}
+                                (page === "onvif" && c.onvifDeviceIP ? (
+                                  <span className="font-mono font-medium text-slate-800">
+                                    {c.onvifDeviceIP}
+                                  </span>
+                                ) : (
+                                  hideCredentials(c.source)
+                                ))}
                             </div>
                             <small className="text-[11px] text-muted-foreground">
                               {page === "file"
                                 ? "无限循环 · 仅视频"
-                                : c.rtspTransport === "tcp"
-                                  ? "TCP 传输"
-                                  : "自动选择传输"}
-                              {c.sourceOnDemand ? " · 按需接入" : ""}
+                                : page === "onvif"
+                                  ? `${c.onvifUser ? `用户: ${c.onvifUser} · ` : ""}${c.sourceOnDemand ? "按需拉流" : "持续拉流"}`
+                                  : c.rtspTransport === "tcp"
+                                    ? "TCP 传输"
+                                    : "自动选择传输"}
+                              {page !== "onvif" && c.sourceOnDemand ? " · 按需接入" : ""}
                             </small>
                           </td>
                           <td>
@@ -869,6 +911,20 @@ export default function App() {
                               }
                             />
                           </td>
+                          {page === "onvif" && (
+                            <td>
+                              {c.onvifPTZURL && c.onvifProfileToken ? (
+                                <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-200">
+                                  <span className="size-1.5 rounded-full bg-emerald-500" />
+                                  支持 PTZ
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+                                  无云台
+                                </span>
+                              )}
+                            </td>
+                          )}
                           <td className="font-mono text-sm">
                             {live?.readers?.length || 0}
                           </td>
@@ -878,7 +934,7 @@ export default function App() {
                                 variant="outline"
                                 size="sm"
                                 disabled={!data?.global.httpflv}
-                                onClick={() => setPreview(c.name)}
+                                onClick={() => openPreview(c)}
                               >
                                 <Video />
                                 预览
@@ -902,30 +958,36 @@ export default function App() {
               </div>
             ) : (
               <Empty
-                icon={page === "rtsp" ? Radio : FolderOpen}
+                icon={page === "onvif" ? Camera : page === "rtsp" ? Radio : FolderOpen}
                 title={
                   query
                     ? "没有匹配的视频源"
-                    : page === "rtsp"
-                      ? "添加第一个 RTSP 源"
-                      : "添加第一个文件源"
+                    : page === "onvif"
+                      ? "添加第一个 ONVIF 设备"
+                      : page === "rtsp"
+                        ? "添加第一个 RTSP 源"
+                        : "添加第一个文件源"
                 }
                 description={
                   query
                     ? "试试其他名称或地址。"
-                    : page === "rtsp"
-                      ? "填写摄像头的 RTSP 地址，即可统一调阅并在页面预览。"
-                      : "上传本机的 MP4 或 MKV 视频，保存到服务器后持续循环播放。"
+                    : page === "onvif"
+                      ? "输入设备 IP、用户名和密码，系统将自动探测视频流与云台 (PTZ) 功能。"
+                      : page === "rtsp"
+                        ? "填写摄像头的 RTSP 地址，即可统一调阅并在页面预览。"
+                        : "上传本机的 MP4 或 MKV 视频，保存到服务器后持续循环播放。"
                 }
                 action={
                   !query && (
                     <Button
                       variant="outline"
                       disabled={!canEdit}
-                      onClick={() => setAdding(true)}
+                      onClick={() =>
+                        page === "onvif" ? setAddingOnvif(true) : setAdding(true)
+                      }
                     >
                       <Plus />
-                      添加视频源
+                      {page === "onvif" ? "添加 ONVIF 设备" : "添加视频源"}
                     </Button>
                   )
                 }
@@ -1076,7 +1138,37 @@ export default function App() {
           }}
         />
       )}
-      <Preview path={preview} onClose={() => setPreview(null)} />
+      <AddONVIFSource
+        open={addingOnvif}
+        busy={busy}
+        onClose={() => setAddingOnvif(false)}
+        onSave={async (name, ip, user, pass, probe) => {
+          await save(
+            {
+              action: "add",
+              name,
+              path: {
+                source: probe.rtspUrl,
+                sourceOnDemand: true,
+                onvifDeviceIP: ip,
+                onvifUser: user,
+                onvifPass: pass,
+                onvifProfileToken: probe.profileToken,
+                onvifPTZURL: probe.ptzUrl,
+              },
+            },
+            `ONVIF 设备已添加${probe.hasPtz ? "（已启用云台控制）" : ""}并保存。`,
+          );
+        }}
+      />
+      <Preview
+        path={preview}
+        hasPTZ={previewHasPTZ}
+        onClose={() => {
+          setPreview(null);
+          setPreviewHasPTZ(false);
+        }}
+      />
     </div>
   );
 }
@@ -1265,6 +1357,174 @@ function AddSource({
             <Button type="submit" disabled={busy}>
               {busy ? <Loader2 className="animate-spin" /> : <Plus />}
               {kind === "file" ? "上传并创建" : "添加并保存"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddONVIFSource({
+  open,
+  busy,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  busy: boolean;
+  onClose: () => void;
+  onSave: (
+    name: string,
+    ip: string,
+    user: string,
+    pass: string,
+    probe: ONVIFProbeResult,
+  ) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [ip, setIP] = useState("");
+  const [user, setUser] = useState("admin");
+  const [pass, setPass] = useState("");
+  const [probing, setProbing] = useState(false);
+  const [probeStatus, setProbeStatus] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setName("");
+      setIP("");
+      setUser("admin");
+      setPass("");
+      setProbing(false);
+      setProbeStatus("");
+      setError("");
+    }
+  }, [open]);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !ip.trim()) return;
+    setProbing(true);
+    setError("");
+    setProbeStatus("正在通过 WS-Discovery 探测设备并进行安全鉴权...");
+
+    try {
+      const probeRes = await onvifProbe({
+        ip: ip.trim(),
+        user: user.trim(),
+        pass: pass.trim(),
+      });
+
+      setProbeStatus(
+        probeRes.hasPtz
+          ? "探测成功！发现视频流与 PTZ 云台服务，正在保存配置..."
+          : "探测成功！发现视频流（设备无 PTZ 云台服务），正在保存配置...",
+      );
+
+      await onSave(name.trim(), ip.trim(), user.trim(), pass.trim(), probeRes);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setProbing(false);
+      setProbeStatus("");
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v && !probing && !busy) onClose();
+      }}
+    >
+      <DialogContent>
+        <DialogTitle className="text-lg font-semibold">
+          添加 ONVIF 设备
+        </DialogTitle>
+        <DialogDescription className="mt-1 text-sm">
+          输入设备 IP 及凭据，后台将自动执行 ONVIF 探测、解析 RTSP 码流地址并检测云台 (PTZ) 能力。
+        </DialogDescription>
+        <form onSubmit={submit} className="mt-6 space-y-4">
+          <Field
+            label="流路径名称"
+            hint="在系统中唯一标识该视频流，支持 / 层级命名，例如 camera/entrance。"
+          >
+            <Input
+              required
+              disabled={probing || busy}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="camera/entrance"
+              autoFocus
+            />
+          </Field>
+
+          <Field
+            label="设备 IP / 地址"
+            hint="支持填写局域网 IP（如 192.168.1.100）或带端口（如 192.168.1.100:8000）。"
+          >
+            <Input
+              required
+              disabled={probing || busy}
+              value={ip}
+              onChange={(e) => setIP(e.target.value)}
+              placeholder="192.168.1.100"
+              className="font-mono text-xs"
+            />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="用户名" hint="ONVIF 设备管理账号（通常为 admin）。">
+              <Input
+                disabled={probing || busy}
+                value={user}
+                onChange={(e) => setUser(e.target.value)}
+                placeholder="admin"
+              />
+            </Field>
+
+            <Field label="密码" hint="ONVIF 设备密码。">
+              <Input
+                type="password"
+                disabled={probing || busy}
+                value={pass}
+                onChange={(e) => setPass(e.target.value)}
+                placeholder="••••••"
+              />
+            </Field>
+          </div>
+
+          {probing && (
+            <div className="flex items-center gap-2 rounded-lg bg-blue-50 p-3 text-xs text-blue-700">
+              <Loader2 className="animate-spin shrink-0" size={16} />
+              <span>{probeStatus || "正在连接并探测设备..."}</span>
+            </div>
+          )}
+
+          {error && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-lg bg-red-50 p-3 text-xs text-red-700"
+            >
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 border-t pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={probing || busy}
+              onClick={onClose}
+            >
+              取消
+            </Button>
+            <Button type="submit" disabled={probing || busy}>
+              {probing ? <Loader2 className="animate-spin" /> : <Plus />}
+              探测并添加
             </Button>
           </div>
         </form>

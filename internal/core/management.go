@@ -97,7 +97,9 @@ func (p *Core) doManagement(change conf.ManagementChange) (*conf.Conf, error) {
 			return nil, er
 		}
 		for k := range patch {
-			if k != "source" && k != "rtspTransport" && k != "sourceOnDemand" && !(change.Action == "upload" && (k == "fileUploadDirectory" || k == "fileUploadOriginalName")) {
+			if k != "source" && k != "rtspTransport" && k != "sourceOnDemand" &&
+				!(change.Action == "upload" && (k == "fileUploadDirectory" || k == "fileUploadOriginalName")) &&
+				k != "onvifDeviceIP" && k != "onvifUser" && k != "onvifPass" && k != "onvifProfileToken" && k != "onvifPTZURL" {
 				return nil, fmt.Errorf("unsupported source setting %s", k)
 			}
 		}

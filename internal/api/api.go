@@ -120,6 +120,8 @@ func (a *API) Initialize() error {
 	group.POST("/management/apply", a.onManagementApply)
 	group.POST("/management/files/upload/*name", a.onFileUpload)
 	group.GET("/preview/*name", a.onPreview)
+	group.POST("/onvif/probe", a.onONVIFProbe)
+	group.POST("/onvif/ptz/*name", a.onONVIFPTZ)
 
 	group.GET("/info", a.onInfo)
 
