@@ -22,8 +22,18 @@ import (
 	"github.com/bluenviron/mediamtx/internal/unit"
 )
 
-// maximum number of packets read while looking for the AAC configuration.
-const aacProbePackets = 512
+const (
+	// maximum number of packets read while probing tracks.
+	probeMaxPackets = 4096
+
+	// maximum duration of video, in the 90khz clock, read while waiting for data of audio tracks.
+	// Some devices declare an audio track in the program stream map but never transmit it;
+	// such tracks are removed, otherwise readers that wait for audio (e.g. HTTP-FLV players)
+	// would never start playback.
+	probeMaxVideoDuration = 90000
+
+	ptsMask = (1 << 33) - 1
+)
 
 type parent interface {
 	logger.Writer
@@ -143,7 +153,7 @@ func (s *Source) runReader(sess Session) error {
 
 	var subStream *stream.SubStream
 
-	medias, err := s.toStream(r, &subStream)
+	medias, replay, err := s.toStream(r, &subStream)
 	if err != nil {
 		return err
 	}
@@ -161,6 +171,12 @@ func (s *Source) runReader(sess Session) error {
 
 	subStream = res.SubStream
 
+	// write data that has been read while probing tracks.
+	err = replay()
+	if err != nil {
+		return err
+	}
+
 	for {
 		err = r.Read()
 		if err != nil {
@@ -169,49 +185,137 @@ func (s *Source) runReader(sess Session) error {
 	}
 }
 
-// probeAACConfig reads the stream until the configuration of a AAC track is found.
-func (s *Source) probeAACConfig(r *mpegps.Reader, track *mpegps.Track) (*mpeg4audio.AudioSpecificConfig, error) {
-	var conf *mpeg4audio.AudioSpecificConfig
+type probedAU struct {
+	track *mpegps.Track
+	pts   int64
+	dts   int64
+	au    []byte
+}
 
-	r.OnData(track, func(_ int64, _ int64, au []byte) error {
-		var pkts mpeg4audio.ADTSPackets
-		err := pkts.Unmarshal(au)
-		if err != nil || len(pkts) == 0 {
-			// wait for a decodable packet.
-			return nil //nolint:nilerr
-		}
+// probeResult contains the outcome of probeTracks.
+type probeResult struct {
+	// audio tracks for which data has been received.
+	audioReceived map[*mpegps.Track]bool
+	// configuration of AAC tracks.
+	aacConfigs map[*mpegps.Track]*mpeg4audio.AudioSpecificConfig
+	// access units read while probing, in reception order.
+	aus []probedAU
+}
 
-		conf = &mpeg4audio.AudioSpecificConfig{
-			Type:          pkts[0].Type,
-			SampleRate:    pkts[0].SampleRate,
-			ChannelConfig: pkts[0].ChannelConfig,
-		}
+func isProbedAudio(track *mpegps.Track) bool {
+	switch track.StreamType {
+	case mpegps.StreamTypeG711A, mpegps.StreamTypeG711U, mpegps.StreamTypeAAC:
+		return true
+	}
+	return false
+}
+
+func aacConfigFromAU(au []byte) *mpeg4audio.AudioSpecificConfig {
+	var pkts mpeg4audio.ADTSPackets
+	err := pkts.Unmarshal(au)
+	if err != nil || len(pkts) == 0 {
 		return nil
-	})
+	}
 
-	for range aacProbePackets {
+	return &mpeg4audio.AudioSpecificConfig{
+		Type:          pkts[0].Type,
+		SampleRate:    pkts[0].SampleRate,
+		ChannelConfig: pkts[0].ChannelConfig,
+	}
+}
+
+// probeTracks reads the stream until data of all audio tracks has been received
+// (and the configuration of AAC tracks has been found), or until a time limit is reached.
+// Access units read in the meanwhile are stored, in order to be written later.
+func probeTracks(r *mpegps.Reader) (*probeResult, error) {
+	res := &probeResult{
+		audioReceived: make(map[*mpegps.Track]bool),
+		aacConfigs:    make(map[*mpegps.Track]*mpeg4audio.AudioSpecificConfig),
+	}
+
+	tracks := r.Tracks()
+
+	hasAudio := false
+	for _, track := range tracks {
+		if isProbedAudio(track) {
+			hasAudio = true
+		}
+	}
+	if !hasAudio {
+		return res, nil
+	}
+
+	firstVideoPTS := int64(-1)
+	videoDuration := int64(0)
+
+	for _, track := range tracks {
+		r.OnData(track, func(pts int64, dts int64, au []byte) error {
+			res.aus = append(res.aus, probedAU{track: track, pts: pts, dts: dts, au: au})
+
+			switch {
+			case isProbedAudio(track):
+				res.audioReceived[track] = true
+
+				if track.StreamType == mpegps.StreamTypeAAC && res.aacConfigs[track] == nil {
+					if conf := aacConfigFromAU(au); conf != nil {
+						res.aacConfigs[track] = conf
+					}
+				}
+
+			case track.IsVideo():
+				if firstVideoPTS < 0 {
+					firstVideoPTS = pts
+				} else {
+					videoDuration = (pts - firstVideoPTS) & ptsMask
+				}
+			}
+			return nil
+		})
+	}
+
+	// remove temporary callbacks.
+	defer func() {
+		for _, track := range tracks {
+			r.OnData(track, nil)
+		}
+	}()
+
+	complete := func() bool {
+		for _, track := range tracks {
+			if !isProbedAudio(track) {
+				continue
+			}
+			if !res.audioReceived[track] {
+				return false
+			}
+			if track.StreamType == mpegps.StreamTypeAAC && res.aacConfigs[track] == nil {
+				return false
+			}
+		}
+		return true
+	}
+
+	for range probeMaxPackets {
 		err := r.Read()
 		if err != nil {
 			return nil, err
 		}
 
-		if conf != nil {
-			// remove the temporary callback.
-			r.OnData(track, nil)
-			return conf, nil
+		if complete() || videoDuration >= probeMaxVideoDuration {
+			break
 		}
 	}
 
-	r.OnData(track, nil)
-
-	return nil, fmt.Errorf("unable to detect the configuration of the audio track")
+	return res, nil
 }
 
 // toStream maps the tracks of a MPEG-PS stream to MediaMTX medias.
+// It returns a function that writes data read while probing tracks;
+// the function must be called once *subStream has been set.
 func (s *Source) toStream(
 	r *mpegps.Reader,
 	subStream **stream.SubStream,
-) ([]*description.Media, error) {
+) ([]*description.Media, func() error, error) {
 	var medias []*description.Media //nolint:prealloc
 
 	// timestamps of all tracks are decoded with the same decoder,
@@ -219,27 +323,28 @@ func (s *Source) toStream(
 	td := &mpegts.TimeDecoder{}
 	td.Initialize()
 
-	// the configuration of AAC tracks is not present in the program stream map,
-	// and has to be extracted from the stream. This is performed before
-	// setting up callbacks, since the stream is not ready yet.
-	aacConfigs := make(map[*mpegps.Track]*mpeg4audio.AudioSpecificConfig)
+	// audio tracks declared in the program stream map are checked for actual data,
+	// and the configuration of AAC tracks, which is not present in the program stream map,
+	// is extracted from the stream. This is performed before setting up callbacks,
+	// since the stream is not ready yet.
+	probe, err := probeTracks(r)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	for _, track := range r.Tracks() {
-		if track.StreamType != mpegps.StreamTypeAAC {
-			continue
-		}
-
-		conf, err := s.probeAACConfig(r, track)
-		if err != nil {
-			s.Log(logger.Warn, "skipping audio track: %v", err)
-			continue
-		}
-
-		aacConfigs[track] = conf
+	callbacks := make(map[*mpegps.Track]func(int64, int64, []byte) error)
+	setCallback := func(track *mpegps.Track, cb func(int64, int64, []byte) error) {
+		callbacks[track] = cb
+		r.OnData(track, cb)
 	}
 
 	for _, track := range r.Tracks() {
 		var medi *description.Media
+
+		if isProbedAudio(track) && !probe.audioReceived[track] {
+			s.Log(logger.Warn, "skipping audio track %s: declared by the device but no data received", track)
+			continue
+		}
 
 		switch track.StreamType {
 		case mpegps.StreamTypeH264:
@@ -251,7 +356,7 @@ func (s *Source) toStream(
 				}},
 			}
 
-			r.OnData(track, func(pts int64, _ int64, au []byte) error {
+			setCallback(track, func(pts int64, _ int64, au []byte) error {
 				var annexb h264.AnnexB
 				err := annexb.Unmarshal(au)
 				if err != nil {
@@ -276,7 +381,7 @@ func (s *Source) toStream(
 				}},
 			}
 
-			r.OnData(track, func(pts int64, _ int64, au []byte) error {
+			setCallback(track, func(pts int64, _ int64, au []byte) error {
 				var annexb h264.AnnexB
 				err := annexb.Unmarshal(au)
 				if err != nil {
@@ -309,7 +414,7 @@ func (s *Source) toStream(
 				}},
 			}
 
-			r.OnData(track, func(pts int64, _ int64, au []byte) error {
+			setCallback(track, func(pts int64, _ int64, au []byte) error {
 				(*subStream).WriteUnit(medi, medi.Formats[0], &unit.Unit{
 					PTS:     multiplyAndDivide(td.Decode(pts), 8000, 90000),
 					Payload: unit.PayloadG711(au),
@@ -318,8 +423,9 @@ func (s *Source) toStream(
 			})
 
 		case mpegps.StreamTypeAAC:
-			conf, ok := aacConfigs[track]
+			conf, ok := probe.aacConfigs[track]
 			if !ok {
+				s.Log(logger.Warn, "skipping audio track: unable to detect the configuration of the audio track")
 				continue
 			}
 
@@ -336,7 +442,7 @@ func (s *Source) toStream(
 
 			sampleRate := int64(conf.SampleRate)
 
-			r.OnData(track, func(pts int64, _ int64, au []byte) error {
+			setCallback(track, func(pts int64, _ int64, au []byte) error {
 				var pkts mpeg4audio.ADTSPackets
 				err2 := pkts.Unmarshal(au)
 				if err2 != nil {
@@ -365,10 +471,26 @@ func (s *Source) toStream(
 	}
 
 	if len(medias) == 0 {
-		return nil, fmt.Errorf("no supported tracks found")
+		return nil, nil, fmt.Errorf("no supported tracks found")
 	}
 
-	return medias, nil
+	// data of skipped tracks has no callback and is discarded.
+	replay := func() error {
+		for _, pau := range probe.aus {
+			cb := callbacks[pau.track]
+			if cb == nil {
+				continue
+			}
+			err2 := cb(pau.pts, pau.dts, pau.au)
+			if err2 != nil {
+				return err2
+			}
+		}
+		probe.aus = nil
+		return nil
+	}
+
+	return medias, replay, nil
 }
 
 func multiplyAndDivide(v, m, d int64) int64 {
