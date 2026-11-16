@@ -91,11 +91,20 @@ type Server struct {
 	ports     *portAllocator
 	listeners []io.Closer
 
-	mutex    sync.RWMutex
-	devices  map[string]*device
-	sessions map[string]*Session
+	mutex         sync.RWMutex
+	devices       map[string]*device
+	sessions      map[string]*Session
+	recordQueries map[int]*recordQuery
 
 	ssrcCounter uint32
+}
+
+type recordQuery struct {
+	items    []defs.APIGB28181RecordItem
+	sumNum   int
+	received bool
+	done     chan struct{}
+	once     sync.Once
 }
 
 // Initialize initializes the server.
@@ -103,6 +112,7 @@ func (s *Server) Initialize() error {
 	s.ctx, s.ctxCancel = context.WithCancel(context.Background())
 	s.devices = make(map[string]*device)
 	s.sessions = make(map[string]*Session)
+	s.recordQueries = make(map[int]*recordQuery)
 
 	_, portStr, err := net.SplitHostPort(s.Address)
 	if err != nil {
@@ -266,7 +276,7 @@ func (s *Server) mediaAdvertisedIP() string {
 }
 
 // generateSSRC generates a SSRC, as defined by GB/T 28181 appendix D.
-func (s *Server) generateSSRC() string {
+func (s *Server) generateSSRC(playback bool) string {
 	s.mutex.Lock()
 	s.ssrcCounter++
 	counter := s.ssrcCounter
@@ -279,20 +289,33 @@ func (s *Server) generateSSRC() string {
 		realm = "00000"
 	}
 
-	return fmt.Sprintf("0%s%04d", realm, counter%10000)
+	prefix := "0"
+	if playback {
+		prefix = "1"
+	}
+
+	return fmt.Sprintf("%s%s%04d", prefix, realm, counter%10000)
+}
+
+func sessionKey(sx *Session) string {
+	if sx.callID != "" {
+		return sx.callID
+	}
+	return sx.channelID
 }
 
 func (s *Server) addSession(sx *Session) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	s.sessions[sx.channelID] = sx
+	s.sessions[sessionKey(sx)] = sx
 }
 
 func (s *Server) removeSession(sx *Session) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	if cur, ok := s.sessions[sx.channelID]; ok && cur == sx {
-		delete(s.sessions, sx.channelID)
+	k := sessionKey(sx)
+	if cur, ok := s.sessions[k]; ok && cur == sx {
+		delete(s.sessions, k)
 	}
 }
 
@@ -522,6 +545,15 @@ func (s *Server) onMessage(req *sip.Request, tx sip.ServerTransaction) {
 		s.respond(tx, req, sip.StatusOK, "OK")
 		dev.setInfo(msg)
 
+	case gb28181.CmdTypeRecordInfo:
+		s.respond(tx, req, sip.StatusOK, "OK")
+		s.handleRecordInfo(msg)
+
+	case gb28181.CmdTypeMediaStatus:
+		s.respond(tx, req, sip.StatusOK, "OK")
+		s.Log(logger.Debug, "device '%s': channel '%s' media status notifyType=%s",
+			deviceID, msg.DeviceID, msg.NotifyType)
+
 	default:
 		s.Log(logger.Debug, "device '%s': received message '%s'", deviceID, msg.CmdType)
 		s.respond(tx, req, sip.StatusOK, "OK")
@@ -729,4 +761,116 @@ func (s *Server) APIPTZControl(channelID string, ptzCmd string) error {
 	defer cancel()
 
 	return s.sendMessage(ctx, dev, channelID, body)
+}
+
+func (s *Server) handleRecordInfo(msg *gb28181.Message) {
+	s.mutex.Lock()
+	rq, ok := s.recordQueries[msg.SN]
+	if !ok {
+		s.mutex.Unlock()
+		return
+	}
+
+	rq.received = true
+	if msg.SumNum >= 0 {
+		rq.sumNum = msg.SumNum
+	}
+	for _, it := range msg.RecordList.Items {
+		rq.items = append(rq.items, defs.APIGB28181RecordItem{
+			DeviceID:   it.DeviceID,
+			Name:       it.Name,
+			FilePath:   it.FilePath,
+			Address:    it.Address,
+			StartTime:  it.StartTime,
+			EndTime:    it.EndTime,
+			Secrecy:    it.Secrecy,
+			Type:       it.Type,
+			RecorderID: it.RecorderID,
+			FileSize:   it.FileSize,
+		})
+	}
+	done := len(rq.items) >= rq.sumNum
+	s.mutex.Unlock()
+
+	if done {
+		rq.once.Do(func() {
+			close(rq.done)
+		})
+	}
+}
+
+// APIRecordInfo queries recording segments of a channel within [startTime, endTime].
+func (s *Server) APIRecordInfo(
+	channelID string,
+	startTime time.Time,
+	endTime time.Time,
+	recordType string,
+) (*defs.APIGB28181RecordList, error) {
+	dev, _, err := s.findChannel(channelID)
+	if err != nil {
+		return nil, err
+	}
+
+	sn := dev.nextSN()
+	rq := &recordQuery{
+		items: []defs.APIGB28181RecordItem{},
+		done:  make(chan struct{}),
+	}
+
+	s.mutex.Lock()
+	s.recordQueries[sn] = rq
+	s.mutex.Unlock()
+
+	defer func() {
+		s.mutex.Lock()
+		delete(s.recordQueries, sn)
+		s.mutex.Unlock()
+	}()
+
+	body := gb28181.EncodeRecordInfoQuery(
+		sn,
+		channelID,
+		startTime.Format("2006-01-02T15:04:05"),
+		endTime.Format("2006-01-02T15:04:05"),
+		recordType,
+	)
+
+	sendCtx, sendCancel := context.WithTimeout(s.ctx, time.Duration(s.WriteTimeout)*2)
+	err = s.sendMessage(sendCtx, dev, dev.id, body)
+	sendCancel()
+	if err != nil {
+		return nil, err
+	}
+
+	waitTimeout := max(time.Duration(s.ReadTimeout), 10*time.Second)
+	timer := time.NewTimer(waitTimeout)
+	defer timer.Stop()
+
+	timedOut := false
+	select {
+	case <-rq.done:
+	case <-s.ctx.Done():
+		return nil, fmt.Errorf("server closed")
+	case <-timer.C:
+		timedOut = true
+	}
+
+	s.mutex.RLock()
+	items := make([]defs.APIGB28181RecordItem, len(rq.items))
+	copy(items, rq.items)
+	received := rq.received
+	s.mutex.RUnlock()
+
+	if timedOut && !received {
+		return nil, fmt.Errorf("timed out waiting for RecordInfo response")
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].StartTime < items[j].StartTime
+	})
+
+	return &defs.APIGB28181RecordList{
+		ItemCount: len(items),
+		Items:     items,
+	}, nil
 }

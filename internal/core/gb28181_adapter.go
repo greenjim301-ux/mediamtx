@@ -21,6 +21,16 @@ func (w *gb28181StaticSourceServer) StartSession(
 	return w.server.StartSession(ctx, channelID)
 }
 
+// StartPlaybackSession implements ssgb28181.Server.
+func (w *gb28181StaticSourceServer) StartPlaybackSession(
+	ctx context.Context,
+	channelID string,
+	startTime int64,
+	endTime int64,
+) (ssgb28181.Session, error) {
+	return w.server.StartPlaybackSession(ctx, channelID, startTime, endTime)
+}
+
 func (p *Core) gb28181StaticSourceServer() ssgb28181.Server {
 	if p.gb28181Server == nil {
 		return nil

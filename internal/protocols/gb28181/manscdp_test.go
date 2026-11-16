@@ -160,3 +160,36 @@ func TestEncodeResponse(t *testing.T) {
 	require.True(t, msg.IsResponse())
 	require.Equal(t, 3, msg.SN)
 }
+
+func TestRecordInfo(t *testing.T) {
+	q := EncodeRecordInfoQuery(99, "35020000001320000002", "2026-11-15T00:00:00", "2026-11-16T23:59:59", "")
+	require.Contains(t, string(q), "<CmdType>RecordInfo</CmdType>")
+	require.Contains(t, string(q), "<Type>all</Type>")
+
+	resp := []byte(`<?xml version="1.0" encoding="gb2312"?>
+<Response>
+<CmdType>RecordInfo</CmdType>
+<SN>99</SN>
+<DeviceID>35020000001320000002</DeviceID>
+<SumNum>35</SumNum>
+<RecordList Num="1">
+<Item>
+<DeviceID>35020000001320000002</DeviceID>
+<Name>Camera1</Name>
+<FilePath>1794671925_1794676150</FilePath>
+<Address>Address 1</Address>
+<StartTime>2026-11-15T00:00:00</StartTime>
+<EndTime>2026-11-15T01:09:10</EndTime>
+<Secrecy>0</Secrecy>
+<Type>time</Type>
+</Item>
+</RecordList>
+</Response>`)
+	msg, err := DecodeMessage(resp)
+	require.NoError(t, err)
+	require.Equal(t, CmdTypeRecordInfo, msg.CmdType)
+	require.Equal(t, 99, msg.SN)
+	require.Equal(t, 35, msg.SumNum)
+	require.Len(t, msg.RecordList.Items, 1)
+	require.Equal(t, "1794671925_1794676150", msg.RecordList.Items[0].FilePath)
+}

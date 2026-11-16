@@ -20,6 +20,8 @@ const (
 	CmdTypeDeviceControl = "DeviceControl"
 	CmdTypeDeviceStatus  = "DeviceStatus"
 	CmdTypeAlarm         = "Alarm"
+	CmdTypeRecordInfo    = "RecordInfo"
+	CmdTypeMediaStatus   = "MediaStatus"
 )
 
 // CatalogItem is an item of a catalog response, that describes a channel.
@@ -49,6 +51,20 @@ func (i CatalogItem) IsOnline() bool {
 	return s == "ON" || s == "ONLINE" || s == "OK"
 }
 
+// RecordInfoItem is an item of a RecordInfo response, describing a recording segment.
+type RecordInfoItem struct {
+	DeviceID   string `xml:"DeviceID"`
+	Name       string `xml:"Name"`
+	FilePath   string `xml:"FilePath"`
+	Address    string `xml:"Address"`
+	StartTime  string `xml:"StartTime"`
+	EndTime    string `xml:"EndTime"`
+	Secrecy    int    `xml:"Secrecy"`
+	Type       string `xml:"Type"`
+	RecorderID string `xml:"RecorderID"`
+	FileSize   string `xml:"FileSize"`
+}
+
 // Message is a MANSCDP message.
 // It contains the union of the fields of all supported messages,
 // since devices are not consistent in the way they fill them.
@@ -74,6 +90,16 @@ type Message struct {
 		Num   int           `xml:"Num,attr"`
 		Items []CatalogItem `xml:"Item"`
 	} `xml:"DeviceList"`
+
+	// RecordInfo
+	Name       string `xml:"Name"`
+	RecordList struct {
+		Num   int              `xml:"Num,attr"`
+		Items []RecordInfoItem `xml:"Item"`
+	} `xml:"RecordList"`
+
+	// MediaStatus
+	NotifyType string `xml:"NotifyType"`
 }
 
 // IsNotify returns whether the message is a notification.
@@ -160,5 +186,24 @@ func EncodeResponse(cmdType string, sn int, deviceID string) []byte {
 	fmt.Fprintf(&buf, "<DeviceID>%s</DeviceID>\r\n", deviceID)
 	buf.WriteString("<Result>OK</Result>\r\n")
 	buf.WriteString("</Response>\r\n")
+	return []byte(buf.String())
+}
+
+// EncodeRecordInfoQuery encodes a RecordInfo query message.
+func EncodeRecordInfoQuery(sn int, channelID string, startTime string, endTime string, recordType string) []byte {
+	if recordType == "" {
+		recordType = "all"
+	}
+	var buf strings.Builder
+	buf.WriteString("<?xml version=\"1.0\" encoding=\"GB2312\"?>\r\n")
+	buf.WriteString("<Query>\r\n")
+	fmt.Fprintf(&buf, "<CmdType>%s</CmdType>\r\n", CmdTypeRecordInfo)
+	fmt.Fprintf(&buf, "<SN>%d</SN>\r\n", sn)
+	fmt.Fprintf(&buf, "<DeviceID>%s</DeviceID>\r\n", channelID)
+	fmt.Fprintf(&buf, "<StartTime>%s</StartTime>\r\n", startTime)
+	fmt.Fprintf(&buf, "<EndTime>%s</EndTime>\r\n", endTime)
+	buf.WriteString("<Secrecy>0</Secrecy>\r\n")
+	fmt.Fprintf(&buf, "<Type>%s</Type>\r\n", recordType)
+	buf.WriteString("</Query>\r\n")
 	return []byte(buf.String())
 }

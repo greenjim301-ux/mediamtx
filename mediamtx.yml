@@ -965,6 +965,12 @@ paths:
     source: gb28181://$G1
     sourceOnDemand: yes
 
+  # Play back recorded video of any known GB28181 channel on demand.
+  # Capture groups: channel ID, start Unix timestamp, end Unix timestamp.
+  ~^gb28181_playback/([^/]+)/(\d+)/(\d+)$:
+    source: gb28181://$G1?type=playback&start=$G2&end=$G3
+    sourceOnDemand: yes
+
   # Settings under path "all_others" are applied to all paths that
   # do not match another entry.
   all_others:

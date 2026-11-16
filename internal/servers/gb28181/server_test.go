@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bluenviron/mediamtx/internal/conf"
+	"github.com/bluenviron/mediamtx/internal/protocols/gb28181"
 	"github.com/bluenviron/mediamtx/internal/protocols/mpegps"
 	"github.com/bluenviron/mediamtx/internal/test"
 )
@@ -641,24 +642,85 @@ func TestPortAllocator(t *testing.T) {
 
 func TestGenerateSSRC(t *testing.T) {
 	s := &Server{Serial: testServerID}
-	ssrc := s.generateSSRC()
+	ssrc := s.generateSSRC(false)
 	require.Equal(t, 10, len(ssrc))
 	require.Equal(t, "0", ssrc[:1])
 
 	_, err := strconv.ParseUint(ssrc, 10, 64)
 	require.NoError(t, err)
+
+	pbSSRC := s.generateSSRC(true)
+	require.Equal(t, 10, len(pbSSRC))
+	require.Equal(t, "1", pbSSRC[:1])
 }
 
 func TestBuildSDP(t *testing.T) {
-	sdp := string(buildSDP("34020000001320000001", "192.168.1.1", "192.168.1.2", 20000, mediaProtocolUDP, "0100000001"))
+	sdp := string(buildSDP("34020000001320000001", "192.168.1.1", "192.168.1.2", 20000, mediaProtocolUDP, "0100000001", false, 0, 0))
+	require.Contains(t, sdp, "s=Play")
+	require.Contains(t, sdp, "t=0 0")
 	require.Contains(t, sdp, "m=video 20000 RTP/AVP 96")
 	require.Contains(t, sdp, "c=IN IP4 192.168.1.2")
 	require.Contains(t, sdp, "y=0100000001")
 	require.NotContains(t, sdp, "a=setup:passive")
 
-	sdp = string(buildSDP("34020000001320000001", "192.168.1.1", "192.168.1.2", 20000, mediaProtocolTCP, "0100000001"))
+	sdp = string(buildSDP("34020000001320000001", "192.168.1.1", "192.168.1.2", 20000, mediaProtocolTCP, "0100000001", false, 0, 0))
 	require.Contains(t, sdp, "m=video 20000 TCP/RTP/AVP 96")
 	require.Contains(t, sdp, "a=setup:passive")
+
+	pbSDP := string(buildSDP("34020000001320000001", "192.168.1.1", "192.168.1.2", 20002, mediaProtocolTCP, "1100000002", true, 1794672000, 1794675600))
+	require.Contains(t, pbSDP, "s=Playback")
+	require.Contains(t, pbSDP, "u=34020000001320000001:0")
+	require.Contains(t, pbSDP, "t=1794672000 1794675600")
+	require.Contains(t, pbSDP, "y=1100000002")
+}
+
+func TestHandleRecordInfoAggregation(t *testing.T) {
+	s := &Server{
+		recordQueries: make(map[int]*recordQuery),
+	}
+	rq := &recordQuery{
+		done: make(chan struct{}),
+	}
+	s.recordQueries[42] = rq
+
+	s.handleRecordInfo(&gb28181.Message{
+		CmdType: gb28181.CmdTypeRecordInfo,
+		SN:      42,
+		SumNum:  2,
+		RecordList: struct {
+			Num   int                      `xml:"Num,attr"`
+			Items []gb28181.RecordInfoItem `xml:"Item"`
+		}{
+			Num: 1,
+			Items: []gb28181.RecordInfoItem{
+				{DeviceID: "34020000001320000001", StartTime: "2026-11-15T00:00:00", EndTime: "2026-11-15T01:00:00", Type: "time"},
+			},
+		},
+	})
+
+	select {
+	case <-rq.done:
+		t.Fatal("query should not be done after 1 of 2 items")
+	default:
+	}
+
+	s.handleRecordInfo(&gb28181.Message{
+		CmdType: gb28181.CmdTypeRecordInfo,
+		SN:      42,
+		SumNum:  2,
+		RecordList: struct {
+			Num   int                      `xml:"Num,attr"`
+			Items []gb28181.RecordInfoItem `xml:"Item"`
+		}{
+			Num: 1,
+			Items: []gb28181.RecordInfoItem{
+				{DeviceID: "34020000001320000001", StartTime: "2026-11-15T01:00:00", EndTime: "2026-11-15T02:00:00", Type: "time"},
+			},
+		},
+	})
+
+	<-rq.done
+	require.Len(t, rq.items, 2)
 }
 
 func TestDefaultIP(t *testing.T) {

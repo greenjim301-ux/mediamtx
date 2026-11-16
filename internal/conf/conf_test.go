@@ -1158,7 +1158,7 @@ func TestDefaultConfFile(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "../../mediamtx.yml", confPath1)
 
-		tmpf := createTempFile(t, []byte("paths:\n  ~^gb28181/(.+)$:\n    source: gb28181://$G1\n    sourceOnDemand: yes\n  all_others:"))
+		tmpf := createTempFile(t, []byte("paths:\n  ~^gb28181/(.+)$:\n    source: gb28181://$G1\n    sourceOnDemand: yes\n  ~^gb28181_playback/([^/]+)/(\\d+)/(\\d+)$:\n    source: gb28181://$G1?type=playback&start=$G2&end=$G3\n    sourceOnDemand: yes\n  all_others:"))
 
 		conf2, confPath2, err := Load(tmpf, nil, nil)
 		require.NoError(t, err)

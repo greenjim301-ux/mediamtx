@@ -149,3 +149,22 @@ func TestProbeTracks(t *testing.T) {
 		require.Less(t, len(res.aus), 5)
 	})
 }
+
+func TestParseSource(t *testing.T) {
+	id, pb, start, end, err := parseSource("gb28181://35020000001320000002")
+	require.NoError(t, err)
+	require.Equal(t, "35020000001320000002", id)
+	require.False(t, pb)
+	require.Zero(t, start)
+	require.Zero(t, end)
+
+	id, pb, start, end, err = parseSource("gb28181://35020000001110000001/35020000001320000002?type=playback&start=1794672000&end=1794675600")
+	require.NoError(t, err)
+	require.Equal(t, "35020000001320000002", id)
+	require.True(t, pb)
+	require.Equal(t, int64(1794672000), start)
+	require.Equal(t, int64(1794675600), end)
+
+	_, _, _, _, err = parseSource("gb28181://35020000001320000002?type=playback&start=1794675600&end=1794672000")
+	require.Error(t, err)
+}

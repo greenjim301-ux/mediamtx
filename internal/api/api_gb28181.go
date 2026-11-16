@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -195,4 +196,53 @@ func updateGB28181PathState(channel *defs.APIGB28181Channel, paths map[string]*c
 	fallback := (path.Name == "all" || path.Name == "all_others") && source == "publisher"
 	channel.PathConflict = !channel.PathConfigured && !fallback
 	channel.PathConfigName = path.Name
+}
+
+func parseGB28181Time(raw string) (time.Time, error) {
+	if raw == "" {
+		return time.Time{}, fmt.Errorf("empty time")
+	}
+	if ts, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		return time.Unix(ts, 0), nil
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t, nil
+	}
+	if t, err := time.ParseInLocation("2006-01-02T15:04:05", raw, time.Local); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("invalid time format '%s'", raw)
+}
+
+func (a *API) onGB28181ChannelRecords(ctx *gin.Context) {
+	startTime, err := parseGB28181Time(ctx.Query("start"))
+	if err != nil {
+		a.writeError(ctx, http.StatusBadRequest, fmt.Errorf("invalid start: %w", err))
+		return
+	}
+
+	endTime, err := parseGB28181Time(ctx.Query("end"))
+	if err != nil {
+		a.writeError(ctx, http.StatusBadRequest, fmt.Errorf("invalid end: %w", err))
+		return
+	}
+
+	if !endTime.After(startTime) {
+		a.writeError(ctx, http.StatusBadRequest, fmt.Errorf("end must be after start"))
+		return
+	}
+
+	recordType := ctx.DefaultQuery("type", "all")
+
+	data, err := a.GB28181Server.APIRecordInfo(ctx.Param("id"), startTime, endTime, recordType)
+	if err != nil {
+		if errors.Is(err, defs.ErrGB28181ChannelNotFound) {
+			a.writeError(ctx, http.StatusNotFound, err)
+		} else {
+			a.writeError(ctx, http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, data)
 }

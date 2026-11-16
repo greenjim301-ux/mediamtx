@@ -5,7 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bluenviron/gortsplib/v5/pkg/description"
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
@@ -51,6 +54,7 @@ type Session interface {
 // Server is the GB28181 server, that establishes sessions with devices.
 type Server interface {
 	StartSession(ctx context.Context, channelID string) (Session, error)
+	StartPlaybackSession(ctx context.Context, channelID string, startTime int64, endTime int64) (Session, error)
 }
 
 // Source is a GB28181 static source.
@@ -70,10 +74,34 @@ func (*Source) Info() defs.StaticSourceInfo {
 	return defs.StaticSourceInfo{}
 }
 
-// channelID extracts the channel ID from a source URL.
-// Both gb28181://<channel> and gb28181://<device>/<channel> are supported.
-func channelID(source string) (string, error) {
-	v := strings.TrimPrefix(source, "gb28181://")
+func parseUnixOrTime(raw string) (int64, error) {
+	if raw == "" {
+		return 0, fmt.Errorf("missing time parameter")
+	}
+	if ts, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		return ts, nil
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t.Unix(), nil
+	}
+	if t, err := time.ParseInLocation("2006-01-02T15:04:05", raw, time.Local); err == nil {
+		return t.Unix(), nil
+	}
+	return 0, fmt.Errorf("invalid time '%s'", raw)
+}
+
+// parseSource extracts the channel ID and optional playback parameters from a source URL.
+// Both gb28181://<channel> and gb28181://<device>/<channel> are supported,
+// optionally with ?type=playback&start=<unix_or_iso>&end=<unix_or_iso>.
+func parseSource(source string) (string, bool, int64, int64, error) {
+	rawPath := source
+	var rawQuery string
+	if idx := strings.IndexByte(source, '?'); idx >= 0 {
+		rawPath = source[:idx]
+		rawQuery = source[idx+1:]
+	}
+
+	v := strings.TrimPrefix(rawPath, "gb28181://")
 	v = strings.Trim(v, "/")
 
 	if i := strings.LastIndex(v, "/"); i >= 0 {
@@ -81,10 +109,39 @@ func channelID(source string) (string, error) {
 	}
 
 	if v == "" {
-		return "", fmt.Errorf("invalid source: '%s'", source)
+		return "", false, 0, 0, fmt.Errorf("invalid source: '%s'", source)
 	}
 
-	return v, nil
+	if rawQuery == "" {
+		return v, false, 0, 0, nil
+	}
+
+	q, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return "", false, 0, 0, fmt.Errorf("invalid source query: %w", err)
+	}
+
+	streamType := strings.ToLower(q.Get("type"))
+	if streamType == "" || streamType == "play" {
+		return v, false, 0, 0, nil
+	}
+	if streamType != "playback" {
+		return "", false, 0, 0, fmt.Errorf("unsupported gb28181 stream type: '%s'", streamType)
+	}
+
+	startTime, err := parseUnixOrTime(q.Get("start"))
+	if err != nil {
+		return "", false, 0, 0, fmt.Errorf("invalid start time: %w", err)
+	}
+	endTime, err := parseUnixOrTime(q.Get("end"))
+	if err != nil {
+		return "", false, 0, 0, fmt.Errorf("invalid end time: %w", err)
+	}
+	if endTime <= startTime {
+		return "", false, 0, 0, fmt.Errorf("end time must be after start time")
+	}
+
+	return v, true, startTime, endTime, nil
 }
 
 // Run implements StaticSource.
@@ -93,14 +150,19 @@ func (s *Source) Run(params defs.StaticSourceRunParams) error {
 		return fmt.Errorf("the GB28181 server is not enabled in the configuration")
 	}
 
-	id, err := channelID(params.ResolvedSource)
+	id, playback, startTime, endTime, err := parseSource(params.ResolvedSource)
 	if err != nil {
 		return err
 	}
 
-	s.Log(logger.Debug, "requesting channel '%s'", id)
-
-	sess, err := s.Server.StartSession(params.Context, id)
+	var sess Session
+	if playback {
+		s.Log(logger.Debug, "requesting playback of channel '%s' [%d, %d]", id, startTime, endTime)
+		sess, err = s.Server.StartPlaybackSession(params.Context, id, startTime, endTime)
+	} else {
+		s.Log(logger.Debug, "requesting channel '%s'", id)
+		sess, err = s.Server.StartSession(params.Context, id)
+	}
 	if err != nil {
 		return err
 	}

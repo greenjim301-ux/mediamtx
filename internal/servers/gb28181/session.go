@@ -70,16 +70,31 @@ func buildSDP(
 	mediaPort int,
 	protocol mediaProtocol,
 	ssrc string,
+	playback bool,
+	startTime int64,
+	endTime int64,
 ) []byte {
 	var lines []string
 
 	lines = append(lines,
 		"v=0",
 		"o="+channelID+" 0 0 IN IP4 "+sipIP,
-		"s=Play",
-		"c=IN IP4 "+mediaIP,
-		"t=0 0",
 	)
+
+	if playback {
+		lines = append(lines,
+			"s=Playback",
+			"u="+channelID+":0",
+			"c=IN IP4 "+mediaIP,
+			fmt.Sprintf("t=%d %d", startTime, endTime),
+		)
+	} else {
+		lines = append(lines,
+			"s=Play",
+			"c=IN IP4 "+mediaIP,
+			"t=0 0",
+		)
+	}
 
 	if protocol == mediaProtocolTCP {
 		lines = append(lines,
@@ -104,6 +119,29 @@ func buildSDP(
 
 // StartSession pulls the live stream of a channel, by sending an INVITE to its device.
 func (s *Server) StartSession(ctx context.Context, channelID string) (*Session, error) {
+	return s.startSession(ctx, channelID, false, 0, 0)
+}
+
+// StartPlaybackSession pulls a recorded playback stream of a channel for [startTime, endTime].
+func (s *Server) StartPlaybackSession(
+	ctx context.Context,
+	channelID string,
+	startTime int64,
+	endTime int64,
+) (*Session, error) {
+	if startTime <= 0 || endTime <= startTime {
+		return nil, fmt.Errorf("invalid playback time range: %d - %d", startTime, endTime)
+	}
+	return s.startSession(ctx, channelID, true, startTime, endTime)
+}
+
+func (s *Server) startSession(
+	ctx context.Context,
+	channelID string,
+	playback bool,
+	startTime int64,
+	endTime int64,
+) (*Session, error) {
 	dev, _, err := s.findChannel(channelID)
 	if err != nil {
 		return nil, err
@@ -139,7 +177,7 @@ func (s *Server) StartSession(ctx context.Context, channelID string) (*Session, 
 		receiver:  receiver,
 	}
 
-	err = s.sendInvite(ctx, sess, addr, transport, port)
+	err = s.sendInvite(ctx, sess, addr, transport, port, playback, startTime, endTime)
 	if err != nil {
 		receiver.close()
 		s.ports.release(port)
@@ -148,8 +186,13 @@ func (s *Server) StartSession(ctx context.Context, channelID string) (*Session, 
 
 	s.addSession(sess)
 
-	s.Log(logger.Info, "channel '%s' of device '%s' is streaming to port %d (%s)",
-		channelID, dev.id, port, s.mediaProtocol())
+	if playback {
+		s.Log(logger.Info, "channel '%s' of device '%s' is playing back [%d, %d] to port %d (%s)",
+			channelID, dev.id, startTime, endTime, port, s.mediaProtocol())
+	} else {
+		s.Log(logger.Info, "channel '%s' of device '%s' is streaming to port %d (%s)",
+			channelID, dev.id, port, s.mediaProtocol())
+	}
 
 	return sess, nil
 }
@@ -160,6 +203,9 @@ func (s *Server) sendInvite(
 	addr string,
 	transport string,
 	port int,
+	playback bool,
+	startTime int64,
+	endTime int64,
 ) error {
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -167,7 +213,7 @@ func (s *Server) sendInvite(
 	}
 	devPort, _ := strconv.Atoi(portStr)
 
-	ssrc := s.generateSSRC()
+	ssrc := s.generateSSRC(playback)
 
 	recipient := sip.Uri{
 		Scheme: "sip",
@@ -205,6 +251,9 @@ func (s *Server) sendInvite(
 		port,
 		s.mediaProtocol(),
 		ssrc,
+		playback,
+		startTime,
+		endTime,
 	))
 
 	req.SetDestination(addr)

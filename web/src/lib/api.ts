@@ -286,3 +286,37 @@ export async function gb28181PTZ(
     body: JSON.stringify(params),
   });
 }
+
+export interface GB28181RecordItem {
+  deviceId: string;
+  name: string;
+  filePath: string;
+  address: string;
+  startTime: string;
+  endTime: string;
+  secrecy: number;
+  type: string;
+  recorderId?: string;
+  fileSize?: string;
+}
+
+export interface GB28181RecordList {
+  itemCount: number;
+  items: GB28181RecordItem[];
+}
+
+export async function gb28181ChannelRecords(
+  id: string,
+  start: string | number,
+  end: string | number,
+  type = "all",
+): Promise<GB28181RecordList> {
+  const qs = new URLSearchParams({
+    start: String(start),
+    end: String(end),
+    type,
+  });
+  return request<GB28181RecordList>(
+    `/gb28181/channels/records/${encodeURIComponent(id)}?${qs.toString()}`,
+  );
+}

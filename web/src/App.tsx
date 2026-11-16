@@ -20,6 +20,7 @@ import {
   FolderOpen,
   Globe2,
   HardDrive,
+  History,
   Loader2,
   LockKeyhole,
   Network,
@@ -44,6 +45,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Preview, type PTZCommand } from "@/components/preview";
+import { GB28181PlaybackDialog } from "@/components/gb28181-playback";
 import {
   apply,
   uploadFile,
@@ -188,6 +190,7 @@ export default function App() {
   const [deleting, setDeleting] = useState<PathConf | null>(null);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [playbackChannel, setPlaybackChannel] = useState<Channel | null>(null);
   const [previewHasPTZ, setPreviewHasPTZ] = useState(false);
   const [previewPTZTitle, setPreviewPTZTitle] = useState("");
   const [previewPTZHandler, setPreviewPTZHandler] = useState<
@@ -832,27 +835,42 @@ export default function App() {
                             <td>
                               <div className="row-actions">
                                 {playable && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={
-                                      !c.online ||
-                                      c.pathConflict ||
-                                      busy ||
-                                      !data?.global.httpflv ||
-                                      (!configured && !canEdit)
-                                    }
-                                    onClick={() => void nationalPreview(c)}
-                                  >
-                                    <Video />
-                                    {c.pathConflict
-                                      ? "路径冲突"
-                                      : configured
-                                        ? "预览"
-                                        : info.kind === "unknown"
-                                          ? "尝试接入"
-                                          : "接入并预览"}
-                                  </Button>
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={
+                                        !c.online ||
+                                        c.pathConflict ||
+                                        busy ||
+                                        !data?.global.httpflv ||
+                                        (!configured && !canEdit)
+                                      }
+                                      onClick={() => void nationalPreview(c)}
+                                    >
+                                      <Video />
+                                      {c.pathConflict
+                                        ? "路径冲突"
+                                        : configured
+                                          ? "预览"
+                                          : info.kind === "unknown"
+                                            ? "尝试接入"
+                                            : "接入并预览"}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={
+                                        !c.online ||
+                                        busy ||
+                                        !data?.global.httpflv
+                                      }
+                                      onClick={() => setPlaybackChannel(c)}
+                                    >
+                                      <History />
+                                      回放
+                                    </Button>
+                                  </>
                                 )}
                               </div>
                             </td>
@@ -1212,6 +1230,10 @@ export default function App() {
           setPreviewPTZTitle("");
           setPreviewPTZHandler(null);
         }}
+      />
+      <GB28181PlaybackDialog
+        channel={playbackChannel}
+        onClose={() => setPlaybackChannel(null)}
       />
     </div>
   );

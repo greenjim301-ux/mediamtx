@@ -266,6 +266,7 @@ func (a *API) Initialize() error {
 		group.GET("/gb28181/devices/get/:id", a.onGB28181DevicesGet)
 		group.POST("/gb28181/devices/refresh/:id", a.onGB28181DevicesRefresh)
 		group.GET("/gb28181/channels/list", a.onGB28181ChannelsList)
+		group.GET("/gb28181/channels/records/:id", a.onGB28181ChannelRecords)
 		group.POST("/gb28181/channels/ptz/:id", a.onGB28181PTZ)
 	}
 

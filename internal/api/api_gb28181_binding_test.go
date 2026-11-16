@@ -5,6 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/bluenviron/mediamtx/internal/conf"
 	"github.com/bluenviron/mediamtx/internal/defs"
@@ -52,6 +53,9 @@ func (bindingGBServer) APIDevicesList() (*defs.APIGB28181DeviceList, error)  { r
 func (bindingGBServer) APIDevicesGet(string) (*defs.APIGB28181Device, error) { return nil, nil }
 func (bindingGBServer) APIRefreshCatalog(string) error                       { return nil }
 func (bindingGBServer) APIPTZControl(string, string) error                   { return nil }
+func (bindingGBServer) APIRecordInfo(string, time.Time, time.Time, string) (*defs.APIGB28181RecordList, error) {
+	return nil, nil
+}
 
 func TestGB28181ChannelBindingResponse(t *testing.T) {
 	file := test.CreateTempFile(t, []byte("paths:\n  ~^gb28181/(.+)$:\n    source: gb28181://$G1\n    sourceOnDemand: true\n  all_others:\n"))
