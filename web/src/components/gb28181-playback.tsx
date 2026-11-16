@@ -68,6 +68,7 @@ export function GB28181PlaybackDialog({
   onClose: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const [date, setDate] = useState(todayDateString);
@@ -219,6 +220,24 @@ export function GB28181PlaybackDialog({
       }
     };
   }, [playbackPath, attempt]);
+
+  const offsetFromClientX = useCallback(
+    (clientX: number) => {
+      const el = trackRef.current;
+      if (!el || totalSec <= 0) return { offset: 0, percent: 0 };
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0) return { offset: 0, percent: 0 };
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      return {
+        offset: Math.round(ratio * totalSec),
+        percent: ratio * 100,
+      };
+    },
+    [totalSec],
+  );
+
+  const activeOffset = draggingOffset ?? displayOffset;
+  const activePercent = totalSec > 0 ? Math.min(100, (activeOffset / totalSec) * 100) : 0;
 
   return (
     <Dialog
@@ -376,12 +395,18 @@ export function GB28181PlaybackDialog({
                 </div>
               )}
               {ended && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/75 text-white">
-                  <p className="text-sm">本段录像已播放结束</p>
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/75 text-white">
+                  <p className="text-sm font-medium">本段录像已播放结束</p>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setAttempt((a) => a + 1)}
+                    className="bg-white text-slate-900 hover:bg-slate-100"
+                    onClick={() => {
+                      setSeekOffset(0);
+                      setCurrentTimeSec(0);
+                      setEnded(false);
+                      setAttempt((a) => a + 1);
+                    }}
                   >
                     <RotateCw />
                     重新播放
@@ -395,6 +420,7 @@ export function GB28181PlaybackDialog({
                   <Button
                     variant="outline"
                     size="sm"
+                    className="bg-white text-slate-900 hover:bg-slate-100"
                     onClick={() => setAttempt((a) => a + 1)}
                   >
                     <RotateCw />
@@ -404,21 +430,63 @@ export function GB28181PlaybackDialog({
               )}
             </div>
 
-            {/* 自定义国标时间轴拖动条（拖动后从新时间点重新拉流） */}
+            {/* 自定义国标时间轴拖动条（悬停与点击共用同一套坐标计算，确保零偏差） */}
             {selected && totalSec > 0 && (
               <div className="mt-2.5 rounded-lg border bg-slate-50 px-3 py-2">
                 <div className="flex items-center justify-between text-xs text-slate-600">
                   <span className="font-mono font-medium text-blue-700">
-                    {formatUnixClock(segStart + (draggingOffset ?? displayOffset))}
+                    {formatUnixClock(segStart + activeOffset)}
                   </span>
                   <span className="text-[11px] text-slate-500">
-                    {draggingOffset !== null ? "松开以跳转到该时间点" : "拖动时间轴可跳转播放"}
+                    {draggingOffset !== null ? "松开以跳转到该时间点" : "点击或拖动时间轴可跳转播放"}
                   </span>
                   <span className="font-mono">
                     {shortTime(selected.startTime)} ~ {shortTime(selected.endTime)}
                   </span>
                 </div>
-                <div className="relative mt-2">
+                <div
+                  ref={trackRef}
+                  role="slider"
+                  aria-valuemin={0}
+                  aria-valuemax={totalSec}
+                  aria-valuenow={activeOffset}
+                  tabIndex={0}
+                  onMouseMove={(e) => {
+                    const info = offsetFromClientX(e.clientX);
+                    setHoverInfo(info);
+                    if (draggingOffset !== null) {
+                      setDraggingOffset(info.offset);
+                    }
+                  }}
+                  onMouseLeave={() => {
+                    setHoverInfo(null);
+                    if (draggingOffset !== null) {
+                      commitSeek(draggingOffset);
+                    }
+                  }}
+                  onMouseDown={(e) => {
+                    const info = offsetFromClientX(e.clientX);
+                    setDraggingOffset(info.offset);
+                  }}
+                  onMouseUp={(e) => {
+                    const info = offsetFromClientX(e.clientX);
+                    commitSeek(info.offset);
+                  }}
+                  onTouchStart={(e) => {
+                    if (e.touches[0]) {
+                      setDraggingOffset(offsetFromClientX(e.touches[0].clientX).offset);
+                    }
+                  }}
+                  onTouchMove={(e) => {
+                    if (e.touches[0]) {
+                      setDraggingOffset(offsetFromClientX(e.touches[0].clientX).offset);
+                    }
+                  }}
+                  onTouchEnd={() => {
+                    if (draggingOffset !== null) commitSeek(draggingOffset);
+                  }}
+                  className="relative mt-2.5 flex h-4 cursor-pointer select-none items-center"
+                >
                   {hoverInfo && (
                     <div
                       style={{ left: `${hoverInfo.percent}%` }}
@@ -427,37 +495,15 @@ export function GB28181PlaybackDialog({
                       {formatUnixClock(segStart + hoverInfo.offset)}
                     </div>
                   )}
-                  <input
-                    type="range"
-                    min={0}
-                    max={totalSec}
-                    value={draggingOffset ?? displayOffset}
-                    onMouseMove={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      if (rect.width <= 0) return;
-                      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                      setHoverInfo({
-                        offset: Math.round(ratio * totalSec),
-                        percent: ratio * 100,
-                      });
-                    }}
-                    onMouseLeave={() => setHoverInfo(null)}
-                    onChange={(e) => setDraggingOffset(Number(e.target.value))}
-                    onMouseUp={() => {
-                      if (draggingOffset !== null) commitSeek(draggingOffset);
-                    }}
-                    onTouchEnd={() => {
-                      if (draggingOffset !== null) commitSeek(draggingOffset);
-                    }}
-                    onKeyUp={(e) => {
-                      if (
-                        (e.key === "Enter" || e.key === "ArrowLeft" || e.key === "ArrowRight") &&
-                        draggingOffset !== null
-                      ) {
-                        commitSeek(draggingOffset);
-                      }
-                    }}
-                    className="h-1.5 w-full cursor-pointer accent-blue-600"
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      style={{ width: `${activePercent}%` }}
+                      className="h-full bg-blue-600"
+                    />
+                  </div>
+                  <div
+                    style={{ left: `${activePercent}%` }}
+                    className="pointer-events-none absolute size-3.5 -translate-x-1/2 rounded-full border-2 border-white bg-blue-600 shadow"
                   />
                 </div>
               </div>
