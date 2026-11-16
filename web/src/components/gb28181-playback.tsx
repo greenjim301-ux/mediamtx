@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, Calendar, History, Loader2, Play, RotateCw, Search } from "lucide-react";
+import { AlertCircle, Calendar, History, Loader2, Pause, Play, RotateCw, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -70,6 +70,9 @@ export function GB28181PlaybackDialog({
   const videoRef = useRef<HTMLVideoElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pauseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const displayOffsetRef = useRef(0);
+  const pausedOffsetRef = useRef(0);
 
   const [date, setDate] = useState(todayDateString);
   const [recordType, setRecordType] = useState("all");
@@ -82,6 +85,8 @@ export function GB28181PlaybackDialog({
   const [draggingOffset, setDraggingOffset] = useState<number | null>(null);
   const [hoverInfo, setHoverInfo] = useState<{ offset: number; percent: number } | null>(null);
   const [currentTimeSec, setCurrentTimeSec] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [suspended, setSuspended] = useState(false);
   const [loading, setLoading] = useState(false);
   const [ended, setEnded] = useState(false);
   const [playError, setPlayError] = useState("");
@@ -106,9 +111,12 @@ export function GB28181PlaybackDialog({
   }, [channel, date, recordType]);
 
   useEffect(() => {
+    clearTimeout(pauseTimerRef.current);
     if (!channel) {
       setRecords([]);
       setSelected(null);
+      setPaused(false);
+      setSuspended(false);
       setQueryError("");
       setPlayError("");
       setEnded(false);
@@ -119,6 +127,8 @@ export function GB28181PlaybackDialog({
     setSeekOffset(0);
     setDraggingOffset(null);
     setCurrentTimeSec(0);
+    setPaused(false);
+    setSuspended(false);
     setPlayError("");
     setEnded(false);
   }, [channel]);
@@ -134,16 +144,20 @@ export function GB28181PlaybackDialog({
   const totalSec = segStart > 0 && segEnd > segStart ? segEnd - segStart : 0;
   const playStartUnix = segStart > 0 ? Math.min(segEnd - 1, segStart + seekOffset) : 0;
   const displayOffset = Math.min(totalSec, seekOffset + Math.floor(currentTimeSec));
+  displayOffsetRef.current = displayOffset;
 
   const playbackPath = (() => {
-    if (!channel || !selected || segStart <= 0 || segEnd <= playStartUnix) return null;
+    if (!channel || !selected || suspended || segStart <= 0 || segEnd <= playStartUnix) return null;
     return `gb28181_playback/${channel.id}/${playStartUnix}/${segEnd}`;
   })();
 
   const commitSeek = useCallback(
     (targetOffset: number) => {
+      clearTimeout(pauseTimerRef.current);
       const clamped = Math.max(0, Math.min(Math.max(0, totalSec - 1), targetOffset));
       setDraggingOffset(null);
+      setPaused(false);
+      setSuspended(false);
       setSeekOffset(clamped);
       setCurrentTimeSec(0);
       setEnded(false);
@@ -152,6 +166,36 @@ export function GB28181PlaybackDialog({
     },
     [totalSec],
   );
+
+  const handleVideoPaused = useCallback(() => {
+    if (!selected || ended || suspended || playError) return;
+    setPaused(true);
+    clearTimeout(pauseTimerRef.current);
+    pauseTimerRef.current = setTimeout(() => {
+      pausedOffsetRef.current = displayOffsetRef.current;
+      setSuspended(true);
+    }, 30000);
+  }, [selected, ended, suspended, playError]);
+
+  const handleVideoResumed = useCallback(() => {
+    clearTimeout(pauseTimerRef.current);
+    setPaused(false);
+  }, []);
+
+  const togglePause = useCallback(() => {
+    if (!selected) return;
+    if (suspended) {
+      commitSeek(pausedOffsetRef.current);
+      return;
+    }
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) {
+      void v.play();
+    } else {
+      v.pause();
+    }
+  }, [selected, suspended, commitSeek]);
 
   useEffect(() => {
     if (!playbackPath) {
@@ -321,10 +365,13 @@ export function GB28181PlaybackDialog({
                       key={`${item.filePath}-${idx}`}
                       type="button"
                       onClick={() => {
+                        clearTimeout(pauseTimerRef.current);
                         setSelected(item);
                         setSeekOffset(0);
                         setDraggingOffset(null);
                         setCurrentTimeSec(0);
+                        setPaused(false);
+                        setSuspended(false);
                         setAttempt((a) => a + 1);
                       }}
                       className={`flex w-full items-center justify-between px-3 py-2.5 text-left text-xs transition hover:bg-blue-50/70 ${
@@ -359,15 +406,22 @@ export function GB28181PlaybackDialog({
                 className="aspect-video w-full"
                 onPlaying={() => {
                   clearTimeout(timerRef.current);
+                  clearTimeout(pauseTimerRef.current);
                   setLoading(false);
                   setEnded(false);
+                  setPaused(false);
                   setPlayError("");
                 }}
+                onPause={handleVideoPaused}
+                onPlay={handleVideoResumed}
                 onTimeUpdate={(e) => {
                   setCurrentTimeSec(e.currentTarget.currentTime);
                 }}
                 onEnded={() => {
+                  clearTimeout(pauseTimerRef.current);
                   setLoading(false);
+                  setPaused(false);
+                  setSuspended(false);
                   setEnded(true);
                 }}
               />
@@ -391,6 +445,22 @@ export function GB28181PlaybackDialog({
                     }}
                   >
                     点击播放录像
+                  </Button>
+                </div>
+              )}
+              {suspended && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/80 text-white">
+                  <p className="text-sm font-medium">
+                    已暂停（已释放连接）· 停留在 {formatUnixClock(segStart + pausedOffsetRef.current)}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-white text-slate-900 hover:bg-slate-100"
+                    onClick={() => commitSeek(pausedOffsetRef.current)}
+                  >
+                    <Play />
+                    继续播放
                   </Button>
                 </div>
               )}
@@ -434,9 +504,22 @@ export function GB28181PlaybackDialog({
             {selected && totalSec > 0 && (
               <div className="mt-2.5 rounded-lg border bg-slate-50 px-3 py-2">
                 <div className="flex items-center justify-between text-xs text-slate-600">
-                  <span className="font-mono font-medium text-blue-700">
-                    {formatUnixClock(segStart + activeOffset)}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      disabled={loading || ended || !!playError}
+                      onClick={togglePause}
+                    >
+                      {paused || suspended ? <Play className="size-3.5" /> : <Pause className="size-3.5" />}
+                      {paused || suspended ? "继续" : "暂停"}
+                    </Button>
+                    <span className="font-mono font-medium text-blue-700">
+                      {formatUnixClock(segStart + activeOffset)}
+                    </span>
+                  </div>
                   <span className="text-[11px] text-slate-500">
                     {draggingOffset !== null ? "松开以跳转到该时间点" : "点击或拖动时间轴可跳转播放"}
                   </span>
