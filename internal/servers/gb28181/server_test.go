@@ -723,6 +723,55 @@ func TestHandleRecordInfoAggregation(t *testing.T) {
 	require.Len(t, rq.items, 2)
 }
 
+func TestHandleMediaStatusPlaybackEnd(t *testing.T) {
+	ports := &portAllocator{min: 20000, max: 20010, used: make(map[int]struct{})}
+	s := &Server{
+		sessions: make(map[string]*Session),
+		ports:    ports,
+		Parent:   test.NilLogger,
+	}
+
+	p1, err := ports.allocate()
+	require.NoError(t, err)
+	r1 := &mediaReceiver{protocol: mediaProtocolUDP, address: "127.0.0.1:0", readTimeout: time.Second}
+	require.NoError(t, r1.initialize())
+	liveSess := &Session{
+		server:    s,
+		channelID: testChannelID,
+		callID:    "live-call",
+		playback:  false,
+		port:      p1,
+		receiver:  r1,
+	}
+	s.addSession(liveSess)
+
+	p2, err := ports.allocate()
+	require.NoError(t, err)
+	r2 := &mediaReceiver{protocol: mediaProtocolUDP, address: "127.0.0.1:0", readTimeout: time.Second}
+	require.NoError(t, r2.initialize())
+	pbSess := &Session{
+		server:    s,
+		channelID: testChannelID,
+		callID:    "pb-call",
+		playback:  true,
+		port:      p2,
+		receiver:  r2,
+	}
+	s.addSession(pbSess)
+
+	s.handleMediaStatus(testChannelID, "121")
+
+	s.mutex.RLock()
+	_, liveExists := s.sessions["live-call"]
+	_, pbExists := s.sessions["pb-call"]
+	s.mutex.RUnlock()
+
+	require.True(t, liveExists)
+	require.False(t, pbExists)
+
+	liveSess.Close()
+}
+
 func TestDefaultIP(t *testing.T) {
 	ip, err := defaultIP()
 	if err != nil {

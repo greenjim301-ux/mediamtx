@@ -20,6 +20,7 @@ type Session struct {
 	server    *Server
 	channelID string
 	deviceID  string
+	playback  bool
 
 	port      int
 	receiver  *mediaReceiver
@@ -173,6 +174,7 @@ func (s *Server) startSession(
 		server:    s,
 		channelID: channelID,
 		deviceID:  dev.id,
+		playback:  playback,
 		port:      port,
 		receiver:  receiver,
 	}

@@ -52,6 +52,14 @@ function shortTime(raw: string): string {
   return idx >= 0 ? raw.slice(idx + 1, idx + 9) : raw;
 }
 
+function formatUnixClock(unixSec: number): string {
+  const d = new Date(unixSec * 1000);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+
 export function GB28181PlaybackDialog({
   channel,
   onClose,
@@ -69,6 +77,10 @@ export function GB28181PlaybackDialog({
   const [records, setRecords] = useState<GB28181RecordItem[]>([]);
 
   const [selected, setSelected] = useState<GB28181RecordItem | null>(null);
+  const [seekOffset, setSeekOffset] = useState(0);
+  const [draggingOffset, setDraggingOffset] = useState<number | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{ offset: number; percent: number } | null>(null);
+  const [currentTimeSec, setCurrentTimeSec] = useState(0);
   const [loading, setLoading] = useState(false);
   const [ended, setEnded] = useState(false);
   const [playError, setPlayError] = useState("");
@@ -103,6 +115,9 @@ export function GB28181PlaybackDialog({
     }
     setDate(todayDateString());
     setSelected(null);
+    setSeekOffset(0);
+    setDraggingOffset(null);
+    setCurrentTimeSec(0);
     setPlayError("");
     setEnded(false);
   }, [channel]);
@@ -113,13 +128,29 @@ export function GB28181PlaybackDialog({
     }
   }, [channel, queryRecords]);
 
+  const segStart = selected ? parseRecordTimeUnix(selected.startTime) : 0;
+  const segEnd = selected ? parseRecordTimeUnix(selected.endTime) : 0;
+  const totalSec = segStart > 0 && segEnd > segStart ? segEnd - segStart : 0;
+  const playStartUnix = segStart > 0 ? Math.min(segEnd - 1, segStart + seekOffset) : 0;
+  const displayOffset = Math.min(totalSec, seekOffset + Math.floor(currentTimeSec));
+
   const playbackPath = (() => {
-    if (!channel || !selected) return null;
-    const startUnix = parseRecordTimeUnix(selected.startTime);
-    const endUnix = parseRecordTimeUnix(selected.endTime);
-    if (startUnix <= 0 || endUnix <= startUnix) return null;
-    return `gb28181_playback/${channel.id}/${startUnix}/${endUnix}`;
+    if (!channel || !selected || segStart <= 0 || segEnd <= playStartUnix) return null;
+    return `gb28181_playback/${channel.id}/${playStartUnix}/${segEnd}`;
   })();
+
+  const commitSeek = useCallback(
+    (targetOffset: number) => {
+      const clamped = Math.max(0, Math.min(Math.max(0, totalSec - 1), targetOffset));
+      setDraggingOffset(null);
+      setSeekOffset(clamped);
+      setCurrentTimeSec(0);
+      setEnded(false);
+      setPlayError("");
+      setAttempt((a) => a + 1);
+    },
+    [totalSec],
+  );
 
   useEffect(() => {
     if (!playbackPath) {
@@ -272,6 +303,9 @@ export function GB28181PlaybackDialog({
                       type="button"
                       onClick={() => {
                         setSelected(item);
+                        setSeekOffset(0);
+                        setDraggingOffset(null);
+                        setCurrentTimeSec(0);
                         setAttempt((a) => a + 1);
                       }}
                       className={`flex w-full items-center justify-between px-3 py-2.5 text-left text-xs transition hover:bg-blue-50/70 ${
@@ -309,6 +343,9 @@ export function GB28181PlaybackDialog({
                   setLoading(false);
                   setEnded(false);
                   setPlayError("");
+                }}
+                onTimeUpdate={(e) => {
+                  setCurrentTimeSec(e.currentTarget.currentTime);
                 }}
                 onEnded={() => {
                   setLoading(false);
@@ -366,6 +403,65 @@ export function GB28181PlaybackDialog({
                 </div>
               )}
             </div>
+
+            {/* 自定义国标时间轴拖动条（拖动后从新时间点重新拉流） */}
+            {selected && totalSec > 0 && (
+              <div className="mt-2.5 rounded-lg border bg-slate-50 px-3 py-2">
+                <div className="flex items-center justify-between text-xs text-slate-600">
+                  <span className="font-mono font-medium text-blue-700">
+                    {formatUnixClock(segStart + (draggingOffset ?? displayOffset))}
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    {draggingOffset !== null ? "松开以跳转到该时间点" : "拖动时间轴可跳转播放"}
+                  </span>
+                  <span className="font-mono">
+                    {shortTime(selected.startTime)} ~ {shortTime(selected.endTime)}
+                  </span>
+                </div>
+                <div className="relative mt-2">
+                  {hoverInfo && (
+                    <div
+                      style={{ left: `${hoverInfo.percent}%` }}
+                      className="pointer-events-none absolute -top-7 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-1.5 py-0.5 font-mono text-[11px] text-white shadow"
+                    >
+                      {formatUnixClock(segStart + hoverInfo.offset)}
+                    </div>
+                  )}
+                  <input
+                    type="range"
+                    min={0}
+                    max={totalSec}
+                    value={draggingOffset ?? displayOffset}
+                    onMouseMove={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      if (rect.width <= 0) return;
+                      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                      setHoverInfo({
+                        offset: Math.round(ratio * totalSec),
+                        percent: ratio * 100,
+                      });
+                    }}
+                    onMouseLeave={() => setHoverInfo(null)}
+                    onChange={(e) => setDraggingOffset(Number(e.target.value))}
+                    onMouseUp={() => {
+                      if (draggingOffset !== null) commitSeek(draggingOffset);
+                    }}
+                    onTouchEnd={() => {
+                      if (draggingOffset !== null) commitSeek(draggingOffset);
+                    }}
+                    onKeyUp={(e) => {
+                      if (
+                        (e.key === "Enter" || e.key === "ArrowLeft" || e.key === "ArrowRight") &&
+                        draggingOffset !== null
+                      ) {
+                        commitSeek(draggingOffset);
+                      }
+                    }}
+                    className="h-1.5 w-full cursor-pointer accent-blue-600"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </DialogContent>

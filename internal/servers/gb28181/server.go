@@ -553,6 +553,7 @@ func (s *Server) onMessage(req *sip.Request, tx sip.ServerTransaction) {
 		s.respond(tx, req, sip.StatusOK, "OK")
 		s.Log(logger.Debug, "device '%s': channel '%s' media status notifyType=%s",
 			deviceID, msg.DeviceID, msg.NotifyType)
+		s.handleMediaStatus(msg.DeviceID, msg.NotifyType)
 
 	default:
 		s.Log(logger.Debug, "device '%s': received message '%s'", deviceID, msg.CmdType)
@@ -761,6 +762,26 @@ func (s *Server) APIPTZControl(channelID string, ptzCmd string) error {
 	defer cancel()
 
 	return s.sendMessage(ctx, dev, channelID, body)
+}
+
+func (s *Server) handleMediaStatus(channelID string, notifyType string) {
+	if strings.TrimSpace(notifyType) != "121" {
+		return
+	}
+
+	s.mutex.RLock()
+	var targets []*Session
+	for _, sx := range s.sessions {
+		if sx.playback && sx.channelID == channelID {
+			targets = append(targets, sx)
+		}
+	}
+	s.mutex.RUnlock()
+
+	for _, sx := range targets {
+		s.Log(logger.Info, "channel '%s': playback finished (MediaStatus 121)", channelID)
+		sx.Close()
+	}
 }
 
 func (s *Server) handleRecordInfo(msg *gb28181.Message) {
