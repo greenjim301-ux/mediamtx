@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bluenviron/mediacommon/v2/pkg/limitedreader"
 	"github.com/bluenviron/mediamtx/internal/conf"
 	"github.com/bluenviron/mediamtx/internal/conf/jsonwrapper"
 	"github.com/bluenviron/mediamtx/internal/defs"
@@ -56,7 +57,7 @@ func (a *API) onManagementApply(ctx *gin.Context) {
 		return
 	}
 	var change conf.ManagementChange
-	if err := jsonwrapper.Decode(&customLimitReader{ctx.Request.Body, maxInboundConfigSize}, &change); err != nil {
+	if err := jsonwrapper.Decode(&limitedreader.Reader{R: ctx.Request.Body, N: maxInboundConfigSize}, &change); err != nil {
 		a.writeError(ctx, 400, err)
 		return
 	}

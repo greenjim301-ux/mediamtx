@@ -68,19 +68,21 @@ type handlerParent interface {
 
 // Handler is a static source handler.
 type Handler struct {
-	Conf              *conf.Path
-	LogLevel          conf.LogLevel
-	DumpPackets       bool
-	ReadTimeout       conf.Duration
-	WriteTimeout      conf.Duration
-	WriteQueueSize    int
-	UDPReadBufferSize uint
-	RTPMaxPayloadSize int
-	SupportsIPv6      bool
-	Matches           []string
-	GB28181Server     ssgb28181.Server
-	PathManager       handlerPathManager
-	Parent            handlerParent
+	Conf               *conf.Path
+	LogLevel           conf.LogLevel
+	DumpPackets        bool
+	ReadTimeout        conf.Duration
+	WriteTimeout       conf.Duration
+	WriteQueueSize     int
+	UDPReadBufferSize  uint
+	UDPWriteBufferSize uint
+	RTPMaxPayloadSize  int
+	UDPMaxPayloadSize  int
+	SupportsIPv6       bool
+	Matches            []string
+	GB28181Server      ssgb28181.Server
+	PathManager        handlerPathManager
+	Parent             handlerParent
 
 	ctx       context.Context
 	ctxCancel func()
@@ -117,12 +119,14 @@ func (s *Handler) Initialize() {
 		strings.HasPrefix(s.Conf.Source, "rtsp+ws://") ||
 		strings.HasPrefix(s.Conf.Source, "rtsps+ws://"):
 		s.instance = &ssrtsp.Source{
-			DumpPackets:       s.DumpPackets,
-			ReadTimeout:       s.ReadTimeout,
-			WriteTimeout:      s.WriteTimeout,
-			WriteQueueSize:    s.WriteQueueSize,
-			UDPReadBufferSize: s.UDPReadBufferSize,
-			Parent:            s,
+			DumpPackets:        s.DumpPackets,
+			ReadTimeout:        s.ReadTimeout,
+			WriteTimeout:       s.WriteTimeout,
+			WriteQueueSize:     s.WriteQueueSize,
+			UDPReadBufferSize:  s.UDPReadBufferSize,
+			UDPWriteBufferSize: s.UDPWriteBufferSize,
+			UDPMaxPayloadSize:  s.UDPMaxPayloadSize,
+			Parent:             s,
 		}
 
 	case strings.HasPrefix(s.Conf.Source, "rtmp://") ||
@@ -160,18 +164,20 @@ func (s *Handler) Initialize() {
 
 	case strings.HasPrefix(s.Conf.Source, "moqt://"):
 		s.instance = &ssmoq.Source{
-			ReadTimeout: s.ReadTimeout,
-			Parent:      s,
+			ReadTimeout:       s.ReadTimeout,
+			UDPMaxPayloadSize: s.UDPMaxPayloadSize,
+			Parent:            s,
 		}
 
 	case strings.HasPrefix(s.Conf.Source, "whep://") ||
 		strings.HasPrefix(s.Conf.Source, "wheps://"):
 		s.instance = &sswebrtc.Source{
-			DumpPackets:       s.DumpPackets,
-			ReadTimeout:       s.ReadTimeout,
-			UDPReadBufferSize: s.UDPReadBufferSize,
-			SupportsIPv6:      s.SupportsIPv6,
-			Parent:            s,
+			DumpPackets:        s.DumpPackets,
+			ReadTimeout:        s.ReadTimeout,
+			UDPReadBufferSize:  s.UDPReadBufferSize,
+			UDPWriteBufferSize: s.UDPWriteBufferSize,
+			SupportsIPv6:       s.SupportsIPv6,
+			Parent:             s,
 		}
 
 	case strings.HasPrefix(s.Conf.Source, "udp+rtp://") ||
