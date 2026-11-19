@@ -60,6 +60,23 @@ function formatUnixClock(unixSec: number): string {
   return `${hh}:${mm}:${ss}`;
 }
 
+function captureVideoFrame(video: HTMLVideoElement | null): string | null {
+  if (!video || video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
+    return null;
+  }
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  } catch {
+    return null;
+  }
+}
+
 export function GB28181PlaybackDialog({
   channel,
   onClose,
@@ -87,6 +104,7 @@ export function GB28181PlaybackDialog({
   const [currentTimeSec, setCurrentTimeSec] = useState(0);
   const [paused, setPaused] = useState(false);
   const [suspended, setSuspended] = useState(false);
+  const [pausedSnapshot, setPausedSnapshot] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [ended, setEnded] = useState(false);
   const [playError, setPlayError] = useState("");
@@ -117,6 +135,7 @@ export function GB28181PlaybackDialog({
       setSelected(null);
       setPaused(false);
       setSuspended(false);
+      setPausedSnapshot(null);
       setQueryError("");
       setPlayError("");
       setEnded(false);
@@ -129,6 +148,7 @@ export function GB28181PlaybackDialog({
     setCurrentTimeSec(0);
     setPaused(false);
     setSuspended(false);
+    setPausedSnapshot(null);
     setPlayError("");
     setEnded(false);
   }, [channel]);
@@ -143,8 +163,12 @@ export function GB28181PlaybackDialog({
   const segEnd = selected ? parseRecordTimeUnix(selected.endTime) : 0;
   const totalSec = segStart > 0 && segEnd > segStart ? segEnd - segStart : 0;
   const playStartUnix = segStart > 0 ? Math.min(segEnd - 1, segStart + seekOffset) : 0;
-  const displayOffset = Math.min(totalSec, seekOffset + Math.floor(currentTimeSec));
-  displayOffsetRef.current = displayOffset;
+  const displayOffset = suspended
+    ? pausedOffsetRef.current
+    : Math.min(totalSec, seekOffset + Math.floor(currentTimeSec));
+  if (!suspended) {
+    displayOffsetRef.current = displayOffset;
+  }
 
   const playbackPath = (() => {
     if (!channel || !selected || suspended || segStart <= 0 || segEnd <= playStartUnix) return null;
@@ -152,12 +176,15 @@ export function GB28181PlaybackDialog({
   })();
 
   const commitSeek = useCallback(
-    (targetOffset: number) => {
+    (targetOffset: number, keepSnapshot = false) => {
       clearTimeout(pauseTimerRef.current);
       const clamped = Math.max(0, Math.min(Math.max(0, totalSec - 1), targetOffset));
       setDraggingOffset(null);
       setPaused(false);
       setSuspended(false);
+      if (!keepSnapshot) {
+        setPausedSnapshot(null);
+      }
       setSeekOffset(clamped);
       setCurrentTimeSec(0);
       setEnded(false);
@@ -173,6 +200,7 @@ export function GB28181PlaybackDialog({
     clearTimeout(pauseTimerRef.current);
     pauseTimerRef.current = setTimeout(() => {
       pausedOffsetRef.current = displayOffsetRef.current;
+      setPausedSnapshot(captureVideoFrame(videoRef.current));
       setSuspended(true);
     }, 30000);
   }, [selected, ended, suspended, playError]);
@@ -185,7 +213,7 @@ export function GB28181PlaybackDialog({
   const togglePause = useCallback(() => {
     if (!selected) return;
     if (suspended) {
-      commitSeek(pausedOffsetRef.current);
+      commitSeek(pausedOffsetRef.current, true);
       return;
     }
     const v = videoRef.current;
@@ -297,7 +325,11 @@ export function GB28181PlaybackDialog({
             <span>国标录像回放 · {channel?.name || channel?.id}</span>
           </DialogTitle>
           <DialogDescription className="mt-1 font-mono text-xs">
-            通道 {channel?.id} · {playbackPath || "请选择录像片段开始回放"}
+            通道 {channel?.id} ·{" "}
+            {playbackPath ||
+              (selected
+                ? `${shortTime(selected.startTime)} ~ ${shortTime(selected.endTime)}（已暂停）`
+                : "请选择录像片段开始回放")}
           </DialogDescription>
         </div>
 
@@ -372,6 +404,7 @@ export function GB28181PlaybackDialog({
                         setCurrentTimeSec(0);
                         setPaused(false);
                         setSuspended(false);
+                        setPausedSnapshot(null);
                         setAttempt((a) => a + 1);
                       }}
                       className={`flex w-full items-center justify-between px-3 py-2.5 text-left text-xs transition hover:bg-blue-50/70 ${
@@ -410,31 +443,51 @@ export function GB28181PlaybackDialog({
                   setLoading(false);
                   setEnded(false);
                   setPaused(false);
+                  setPausedSnapshot(null);
                   setPlayError("");
                 }}
                 onPause={handleVideoPaused}
                 onPlay={handleVideoResumed}
                 onTimeUpdate={(e) => {
-                  setCurrentTimeSec(e.currentTarget.currentTime);
+                  if (!suspended) {
+                    setCurrentTimeSec(e.currentTarget.currentTime);
+                  }
                 }}
                 onEnded={() => {
                   clearTimeout(pauseTimerRef.current);
                   setLoading(false);
                   setPaused(false);
                   setSuspended(false);
+                  setPausedSnapshot(null);
                   setEnded(true);
                 }}
               />
+              {pausedSnapshot && !playError && !ended && (suspended || loading) && (
+                <img
+                  src={pausedSnapshot}
+                  alt="暂停画面"
+                  className="pointer-events-none absolute inset-0 h-full w-full bg-slate-950 object-contain"
+                />
+              )}
               {!selected && (
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-950/85 text-sm text-slate-300">
                   请在左侧选择一条录像片段开始回放
                 </div>
               )}
               {selected && loading && !playError && !ended && (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-950/60 text-white">
-                  <Loader2 className="mr-2 size-5 animate-spin" />
-                  <span>正在向 NVR 请求录像流...</span>
-                </div>
+                pausedSnapshot ? (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="flex items-center rounded-full bg-slate-950/60 px-3.5 py-1.5 text-xs text-white backdrop-blur-[2px]">
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                      <span>正在恢复播放...</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-950/60 text-white">
+                    <Loader2 className="mr-2 size-5 animate-spin" />
+                    <span>正在向 NVR 请求录像流...</span>
+                  </div>
+                )
               )}
               {autoplayBlocked && !playError && (
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60">
@@ -448,21 +501,19 @@ export function GB28181PlaybackDialog({
                   </Button>
                 </div>
               )}
-              {suspended && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/80 text-white">
-                  <p className="text-sm font-medium">
-                    已暂停（已释放连接）· 停留在 {formatUnixClock(segStart + pausedOffsetRef.current)}
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="bg-white text-slate-900 hover:bg-slate-100"
-                    onClick={() => commitSeek(pausedOffsetRef.current)}
-                  >
-                    <Play />
-                    继续播放
-                  </Button>
-                </div>
+              {suspended && !playError && !ended && (
+                <button
+                  type="button"
+                  aria-label="继续播放"
+                  onClick={() => commitSeek(pausedOffsetRef.current, true)}
+                  className={`absolute inset-0 flex items-center justify-center ${
+                    pausedSnapshot ? "bg-transparent" : "bg-slate-950/60"
+                  }`}
+                >
+                  <span className="flex size-14 items-center justify-center rounded-full bg-slate-950/50 text-white shadow-lg backdrop-blur-[2px] transition hover:bg-slate-950/70">
+                    <Play className="ml-0.5 size-6 fill-current" />
+                  </span>
+                </button>
               )}
               {ended && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/75 text-white">
@@ -474,6 +525,7 @@ export function GB28181PlaybackDialog({
                     onClick={() => {
                       setSeekOffset(0);
                       setCurrentTimeSec(0);
+                      setPausedSnapshot(null);
                       setEnded(false);
                       setAttempt((a) => a + 1);
                     }}
